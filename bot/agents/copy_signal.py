@@ -10,40 +10,14 @@ from typing import Any, Set
 
 import httpx
 
-from bot.categories import classify_market
+from bot.categories import MarketCategory
+from bot.copy_rules import build_candidate, limit_price_with_buffer, passes_filters, wallet_score
 from bot.http_retry import get_json_retry
 from bot.models import TradeIntent
 
 log = logging.getLogger("polymarket.agent.copy")
 
 ACTIVITY_URL = "https://data-api.polymarket.com/activity"
-
-
-def _extract_token_id(entry: dict) -> str | None:
-    asset = entry.get("asset") or entry.get("asset_id")
-    if isinstance(asset, str) and len(asset) > 30:
-        return asset
-    if isinstance(asset, dict):
-        for k in ("token_id", "tokenId", "id"):
-            v = asset.get(k)
-            if isinstance(v, str) and len(v) > 20:
-                return v
-    for k in ("clobTokenId", "tokenId", "token_id", "asset_id"):
-        v = entry.get(k)
-        if isinstance(v, str) and len(v) > 20:
-            return v
-    return None
-
-
-def _extract_price(entry: dict) -> float | None:
-    for k in ("price", "avgPrice", "avg_price"):
-        v = entry.get(k)
-        if v is not None:
-            try:
-                return float(v)
-            except (TypeError, ValueError):
-                pass
-    return None
 
 
 class CopySignalAgent:
@@ -73,56 +47,60 @@ class CopySignalAgent:
                 log.warning("copy poll %s…: %s", wallet[:10], e)
                 continue
 
+            score, parts = wallet_score(
+                rows if isinstance(rows, list) else [],
+                wallet=wallet,
+                default_bet_usd=float(self.settings.default_bet_usd),
+                settings=self.settings,
+            )
+            min_score = float(getattr(self.settings, "copy_min_wallet_score", 0.0) or 0.0)
+            if score < min_score:
+                log.info(
+                    "copy skip wallet=%s score=%.3f < %.3f parts=%s",
+                    wallet[:10],
+                    score,
+                    min_score,
+                    {k: round(v, 3) for k, v in parts.items()},
+                )
+                continue
+
             for entry in rows:
-                if entry.get("type") and str(entry["type"]).upper() != "TRADE":
-                    continue
-                side = str(entry.get("side", "")).upper()
-                if side and side != "BUY":
+                c = build_candidate(entry, wallet, float(self.settings.default_bet_usd))
+                if c is None:
                     continue
 
-                tid = _extract_token_id(entry)
-                if not tid:
+                if c.tx_key in self._seen:
                     continue
-
-                txh = str(entry.get("transactionHash") or entry.get("id") or "")
-                dedupe = f"{wallet}:{txh}:{tid}"
-                if dedupe in self._seen:
-                    continue
-                self._seen.add(dedupe)
+                self._seen.add(c.tx_key)
                 if self._cold_start:
                     continue
 
-                px = _extract_price(entry) or 0.5
-                px = max(0.02, min(0.98, px))
-                max_px = round(min(px * 1.03, 0.99), 4)
-
-                title = str(entry.get("title") or entry.get("question") or "unknown")
+                ok, _reason = passes_filters(self.settings, c)
+                if not ok:
+                    continue
+                max_px = limit_price_with_buffer(self.settings, c.price)
+                usdc = max(self.settings.min_bet_usd, min(self.settings.max_bet_usd, c.usdc))
                 cond = str(entry.get("conditionId") or entry.get("condition_id") or "")
-                pseudo = {
-                    "question": title,
-                    "slug": str(entry.get("slug") or ""),
-                    "tags": entry.get("tags"),
-                }
-                cat = classify_market(pseudo)
-
-                usdc = float(entry.get("usdcSize") or entry.get("amount") or self.settings.default_bet_usd)
-                usdc = max(self.settings.min_bet_usd, min(self.settings.max_bet_usd, usdc))
+                try:
+                    cat = MarketCategory(c.category)
+                except ValueError:
+                    cat = MarketCategory.OTHER
 
                 intents.append(
                     TradeIntent(
                         agent=self.name,
                         priority=self.priority,
-                        token_id=tid,
-                        condition_id=cond or tid[:16],
-                        question=title[:500],
-                        outcome=str(entry.get("outcome") or "unknown"),
+                        token_id=c.token_id,
+                        condition_id=cond or c.token_id[:16],
+                        question=c.title[:500],
+                        outcome=str(entry.get("outcome") or c.outcome or "unknown"),
                         side="BUY",
                         max_price=max_px,
                         size_usd=usdc,
                         category=cat,
                         strategy="copy_trade",
-                        reason=f"wallet={wallet[:10]}… px~{px:.3f}",
-                        reference_price=px,
+                        reason=f"wallet={wallet[:10]}… px~{c.price:.3f}",
+                        reference_price=c.price,
                     )
                 )
 

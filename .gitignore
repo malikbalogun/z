@@ -1,5 +1,8 @@
 .venv/
 venv/
+__MACOSX/
+.DS_Store
+polymarket_real_bot-*.zip
 __pycache__/
 *.pyc
 .env

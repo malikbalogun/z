@@ -40,6 +40,19 @@ def best_bid_ask(clob: Any, token_id: str) -> tuple[float | None, float | None]:
     return best_b, best_a
 
 
+def spread_mid_bps(clob: Any, token_id: str) -> float | None:
+    """
+    (ask - bid) / mid in bps where mid = (bid+ask)/2. None if book incomplete.
+    """
+    bid, ask = best_bid_ask(clob, token_id)
+    if bid is None or ask is None or bid <= 0 or ask <= 0 or ask < bid:
+        return None
+    mid = (bid + ask) / 2.0
+    if mid <= 1e-9:
+        return None
+    return (ask - bid) / mid * 10000.0
+
+
 def _sum_notional(levels: list[Any] | None) -> float:
     if not levels:
         return 0.0

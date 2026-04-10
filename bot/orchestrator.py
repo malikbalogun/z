@@ -26,8 +26,10 @@ from bot.models import BotState, TradeIntent, TradeRecord, utc_now_iso
 from bot.clob_utils import parse_midpoint
 from bot.reconcile import reconcile_trade_records_inplace, snapshot_open_orders
 from bot.db.kv import append_trade_log
+from bot.exposure import category_exposure_usd, condition_exposure_usd, rolling_notional_usd
 from bot.execution_plan import plan_execution_units
-from bot.orderbook import orderbook_buy_depth_ok
+from bot.market_intel import hours_until_resolution_end
+from bot.orderbook import orderbook_buy_depth_ok, spread_mid_bps
 from bot.risk import gate_intent
 from bot.settings import Settings
 from bot.signals import intent_signal_boost
@@ -235,9 +237,13 @@ class TradingBot:
                 cur_price = avg_price
             pnl = (cur_price - avg_price) * size
             value = cur_price * size
+            cid_pos = ""
+            if mi:
+                cid_pos = str(mi.get("condition_id") or mi.get("conditionId") or "")
             positions.append(
                 {
                     "token_id": token_id,
+                    "condition_id": cid_pos,
                     "market": market_name or token_id[:16],
                     "outcome": outcome,
                     "side": pos.get("side", "BUY"),
@@ -267,9 +273,29 @@ class TradingBot:
             )
 
         try:
-            self.state.open_orders = await asyncio.to_thread(_run)
+            rows = await asyncio.to_thread(_run)
+            for row in rows:
+                tid = row.get("token_id")
+                if tid:
+                    row["condition_id"] = self._condition_id_for_token(str(tid))
+            self.state.open_orders = rows
         except Exception as e:
             log.warning("open_orders: %s", e)
+
+    def _condition_id_for_token(self, token_id: str) -> str:
+        tid = (token_id or "").strip()
+        if not tid or not self._market_cache:
+            return ""
+        for cid, m in self._market_cache.items():
+            toks = m.get("clobTokenIds", m.get("clob_token_ids", ""))
+            if isinstance(toks, str):
+                try:
+                    toks = json.loads(toks) if toks.startswith("[") else [toks]
+                except json.JSONDecodeError:
+                    continue
+            if tid in toks:
+                return str(cid)
+        return ""
 
     async def force_reconcile(self) -> dict[str, Any]:
         """Refresh open orders + poll recent trade rows (for manual / API trigger)."""
@@ -375,6 +401,86 @@ class TradingBot:
             )
         return ok_book
 
+    async def _advanced_gates_ok(
+        self,
+        legs: list[TradeIntent],
+        *,
+        markets_by_cid: dict[str, dict[str, Any]],
+        rolling_notional: float,
+        condition_extra_usd: dict[str, float] | None = None,
+        category_extra_usd: dict[str, float] | None = None,
+    ) -> tuple[bool, str]:
+        """Spread, resolution timing, per-condition exposure, rolling daily notional."""
+        if not legs:
+            return True, "ok"
+        total_new = sum(float(x.size_usd) for x in legs)
+        cap_d = float(self.settings.max_daily_notional_usd)
+        if cap_d > 0 and rolling_notional + total_new > cap_d:
+            return (
+                False,
+                f"daily_notional_{rolling_notional + total_new:.0f}_gt_{cap_d:.0f}",
+            )
+        cap_c = float(self.settings.max_condition_exposure_usd)
+        if cap_c > 0:
+            cid = (legs[0].condition_id or "").strip()
+            if cid:
+                cur = condition_exposure_usd(
+                    cid,
+                    positions=self.state.positions,
+                    open_orders=self.state.open_orders,
+                )
+                if condition_extra_usd:
+                    cur += float(condition_extra_usd.get(cid, 0.0) or 0.0)
+                if cur + total_new > cap_c:
+                    return False, f"condition_exposure_{cur:.0f}_plus_{total_new:.0f}_gt_{cap_c:.0f}"
+        # Category exposure cap (global and/or per-category override)
+        cat_map: dict[str, str] = {}
+        for cid, m in markets_by_cid.items():
+            c = m.get("category")
+            cval = getattr(c, "value", c)
+            cat_map[str(cid)] = str(cval or "").lower()
+        cat_new: dict[str, float] = {}
+        for it in legs:
+            c = cat_map.get(str(it.condition_id or ""), str(it.category.value)).lower()
+            if c:
+                cat_new[c] = cat_new.get(c, 0.0) + float(it.size_usd)
+        if cat_new:
+            global_cap = float(getattr(self.settings, "max_category_exposure_usd", 0.0) or 0.0)
+            over_caps = dict(getattr(self.settings, "category_exposure_caps", {}) or {})
+            for c, add_u in cat_new.items():
+                cap = float(over_caps.get(c, 0.0) or 0.0)
+                if cap <= 0:
+                    cap = global_cap
+                if cap <= 0:
+                    continue
+                cur = category_exposure_usd(
+                    c,
+                    positions=self.state.positions,
+                    open_orders=self.state.open_orders,
+                    categories_by_condition=cat_map,
+                )
+                if category_extra_usd:
+                    cur += float(category_extra_usd.get(c, 0.0) or 0.0)
+                if cur + float(add_u) > cap:
+                    return False, f"category_exposure_{c}_{cur:.0f}_plus_{add_u:.0f}_gt_{cap:.0f}"
+        for it in legs:
+            if self.settings.resolution_gate_enabled and float(self.settings.min_hours_to_resolution) > 0:
+                m = markets_by_cid.get(it.condition_id) or {}
+                hr = hours_until_resolution_end(m)
+                if hr is not None and hr < float(self.settings.min_hours_to_resolution):
+                    return False, f"resolution_in_{hr:.1f}h_lt_min_{self.settings.min_hours_to_resolution}h"
+            if self.settings.spread_gate_enabled and self.clob and it.side.upper() == "BUY":
+                bps = await asyncio.to_thread(spread_mid_bps, self.clob, it.token_id)
+                if bps is not None and bps > float(self.settings.max_spread_bps):
+                    return False, f"spread_{bps:.0f}_bps_gt_{self.settings.max_spread_bps}"
+        return True, "ok"
+
+    def _note_exec_result(self, ok: bool) -> None:
+        if ok:
+            self.state.consecutive_exec_failures = 0
+        else:
+            self.state.consecutive_exec_failures = int(self.state.consecutive_exec_failures or 0) + 1
+
     async def run_cycle(self):
         if not self.clob or not self._http:
             return
@@ -443,73 +549,160 @@ class TradingBot:
         ]
         self.state.agents_fired = list({i.agent for i in intents})
 
-        units = plan_execution_units(intents)
-        placed = 0
-        for unit in units:
-            if placed >= self.settings.max_trades_per_cycle:
-                break
-            if len(unit) == 2:
-                a, b = unit
-                await self._apply_intent_multipliers(a)
-                await self._apply_intent_multipliers(b)
-                da = self._dispersion_for_intent(a, cex_map)
-                db = self._dispersion_for_intent(b, cex_map)
-                ok_a, ra = gate_intent(a, self.settings, da)
-                ok_b, rb = gate_intent(b, self.settings, db)
-                if not ok_a or not ok_b:
-                    log.info("skip bundle: %s / %s (%s)", ra, rb, a.strategy)
+        cb_max = int(self.settings.circuit_breaker_max_fails or 0)
+        skip_placements = cb_max > 0 and self.state.consecutive_exec_failures >= cb_max
+        if skip_placements:
+            log.warning(
+                "circuit_breaker: skipping placements (failures=%s >= %s)",
+                self.state.consecutive_exec_failures,
+                cb_max,
+            )
+            slog(
+                log,
+                self.settings.structured_log,
+                "circuit_breaker",
+                failures=self.state.consecutive_exec_failures,
+                max_fails=cb_max,
+            )
+            placed = 0
+        else:
+            await self.refresh_open_orders()
+            markets_by_cid: dict[str, dict[str, Any]] = {
+                str(m.get("condition_id") or ""): m for m in markets if m.get("condition_id")
+            }
+            rolling_n = rolling_notional_usd(
+                self.state.trade_history,
+                hours=float(self.settings.daily_notional_window_hours or 24.0),
+            )
+            condition_extra: dict[str, float] = {}
+            category_extra: dict[str, float] = {}
+
+            units = plan_execution_units(intents)
+            placed = 0
+            for unit in units:
+                if placed >= self.settings.max_trades_per_cycle:
+                    break
+                if len(unit) == 2:
+                    a, b = unit
+                    await self._apply_intent_multipliers(a)
+                    await self._apply_intent_multipliers(b)
+                    da = self._dispersion_for_intent(a, cex_map)
+                    db = self._dispersion_for_intent(b, cex_map)
+                    ok_a, ra = gate_intent(a, self.settings, da)
+                    ok_b, rb = gate_intent(b, self.settings, db)
+                    if not ok_a or not ok_b:
+                        log.info("skip bundle: %s / %s (%s)", ra, rb, a.strategy)
+                        slog(
+                            log,
+                            self.settings.structured_log,
+                            "intent_skipped",
+                            strategy=f"{a.strategy}+{b.strategy}",
+                            agent=a.agent,
+                            reason=f"bundle_gate:{ra}/{rb}",
+                        )
+                        continue
+                    if not await self._orderbook_gate_passes(a):
+                        continue
+                    if not await self._orderbook_gate_passes(b):
+                        continue
+                    adv_ok, adv_r = await self._advanced_gates_ok(
+                        [a, b],
+                        markets_by_cid=markets_by_cid,
+                        rolling_notional=rolling_n,
+                        condition_extra_usd=condition_extra,
+                        category_extra_usd=category_extra,
+                    )
+                    if not adv_ok:
+                        log.info("skip bundle: %s", adv_r)
+                        slog(
+                            log,
+                            self.settings.structured_log,
+                            "intent_skipped",
+                            strategy=f"{a.strategy}+{b.strategy}",
+                            agent=a.agent,
+                            reason=adv_r,
+                        )
+                        continue
+                    need = a.size_usd + b.size_usd + reserve
+                    if self.state.usdc_balance < need:
+                        log.info("skip bundle: insufficient balance (need %.2f incl. buffer)", need)
+                        continue
+                    ok1 = await self._execute_intent(a)
+                    if not ok1:
+                        self._note_exec_result(False)
+                        continue
+                    rolling_n += float(a.size_usd)
+                    if a.condition_id:
+                        condition_extra[a.condition_id] = condition_extra.get(a.condition_id, 0.0) + float(a.size_usd)
+                    acat = str(a.category.value).lower()
+                    category_extra[acat] = category_extra.get(acat, 0.0) + float(a.size_usd)
+                    ok2 = await self._execute_intent(b)
+                    self._note_exec_result(bool(ok2))
+                    if ok2:
+                        rolling_n += float(b.size_usd)
+                        if b.condition_id:
+                            condition_extra[b.condition_id] = condition_extra.get(b.condition_id, 0.0) + float(
+                                b.size_usd
+                            )
+                        bcat = str(b.category.value).lower()
+                        category_extra[bcat] = category_extra.get(bcat, 0.0) + float(b.size_usd)
+                        placed += 1
+                    else:
+                        log.warning("bundle partial: second leg failed after first submitted")
+                        self.state.errors.append("bundle_partial_second_failed")
+                    continue
+
+                intent = unit[0]
+                await self._apply_intent_multipliers(intent)
+                disp = self._dispersion_for_intent(intent, cex_map)
+                if not await self._orderbook_gate_passes(intent):
+                    continue
+                ok, reason = gate_intent(intent, self.settings, disp)
+                if not ok:
+                    log.info("skip intent: %s (%s)", intent.strategy, reason)
                     slog(
                         log,
                         self.settings.structured_log,
                         "intent_skipped",
-                        strategy=f"{a.strategy}+{b.strategy}",
-                        agent=a.agent,
-                        reason=f"bundle_gate:{ra}/{rb}",
+                        strategy=intent.strategy,
+                        agent=intent.agent,
+                        reason=reason,
                     )
                     continue
-                if not await self._orderbook_gate_passes(a):
-                    continue
-                if not await self._orderbook_gate_passes(b):
-                    continue
-                need = a.size_usd + b.size_usd + reserve
-                if self.state.usdc_balance < need:
-                    log.info("skip bundle: insufficient balance (need %.2f incl. buffer)", need)
-                    continue
-                ok1 = await self._execute_intent(a)
-                if not ok1:
-                    continue
-                ok2 = await self._execute_intent(b)
-                if ok2:
-                    placed += 1
-                else:
-                    log.warning("bundle partial: second leg failed after first submitted")
-                    self.state.errors.append("bundle_partial_second_failed")
-                continue
-
-            intent = unit[0]
-            await self._apply_intent_multipliers(intent)
-            disp = self._dispersion_for_intent(intent, cex_map)
-            if not await self._orderbook_gate_passes(intent):
-                continue
-            ok, reason = gate_intent(intent, self.settings, disp)
-            if not ok:
-                log.info("skip intent: %s (%s)", intent.strategy, reason)
-                slog(
-                    log,
-                    self.settings.structured_log,
-                    "intent_skipped",
-                    strategy=intent.strategy,
-                    agent=intent.agent,
-                    reason=reason,
+                adv_ok, adv_r = await self._advanced_gates_ok(
+                    [intent],
+                    markets_by_cid=markets_by_cid,
+                    rolling_notional=rolling_n,
+                    condition_extra_usd=condition_extra,
+                    category_extra_usd=category_extra,
                 )
-                continue
-            need = intent.size_usd + reserve
-            if self.state.usdc_balance < need:
-                log.info("skip: insufficient balance (need %.2f incl. buffer)", need)
-                continue
+                if not adv_ok:
+                    log.info("skip intent: %s (%s)", intent.strategy, adv_r)
+                    slog(
+                        log,
+                        self.settings.structured_log,
+                        "intent_skipped",
+                        strategy=intent.strategy,
+                        agent=intent.agent,
+                        reason=adv_r,
+                    )
+                    continue
+                need = intent.size_usd + reserve
+                if self.state.usdc_balance < need:
+                    log.info("skip: insufficient balance (need %.2f incl. buffer)", need)
+                    continue
 
-            if await self._execute_intent(intent):
-                placed += 1
+                ok_ex = await self._execute_intent(intent)
+                self._note_exec_result(ok_ex)
+                if ok_ex:
+                    rolling_n += float(intent.size_usd)
+                    if intent.condition_id:
+                        condition_extra[intent.condition_id] = condition_extra.get(intent.condition_id, 0.0) + float(
+                            intent.size_usd
+                        )
+                    ccat = str(intent.category.value).lower()
+                    category_extra[ccat] = category_extra.get(ccat, 0.0) + float(intent.size_usd)
+                    placed += 1
 
         self.state.errors = self.state.errors[-25:]
         log.info("——— cycle end placed=%s ———", placed)
@@ -738,4 +931,12 @@ class TradingBot:
             "open_orders_count": len(self.state.open_orders),
             "last_reconcile_at": self.state.last_reconcile_at,
             "reconcile_updates_last": self.state.reconcile_updates_last,
+            "consecutive_exec_failures": self.state.consecutive_exec_failures,
+            "rolling_notional_window_usd": round(
+                rolling_notional_usd(
+                    self.state.trade_history,
+                    hours=float(self.settings.daily_notional_window_hours or 24.0),
+                ),
+                2,
+            ),
         }

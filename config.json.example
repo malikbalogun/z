@@ -1,6 +1,7 @@
 {
   "database_url": "sqlite:///./data/app.db",
   "session_secret": "replace-with-long-random-string-at-least-32-chars",
+  "webhook_token": "replace-with-random-token-for-api-hook-control",
   "upload_dir": "./data/uploads",
   "initial_admin_username": "admin",
   "initial_admin_password": "change-me-immediately"

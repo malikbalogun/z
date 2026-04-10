@@ -94,6 +94,18 @@ def default_kv_seed() -> dict[str, str]:
         "zscore_min_samples": "12",
         "copy_watch_wallets": "[]",
         "copy_poll_seconds": "15",
+        "copy_min_usd": "0",
+        "copy_max_usd": "0",
+        "copy_min_price": "0",
+        "copy_max_price": "1",
+        "copy_price_buffer_bps": "300",
+        "copy_min_wallet_score": "0",
+        "copy_wallet_score_overrides": "{}",
+        "copy_allow_unknown_outcome": "true",
+        "copy_allowed_categories": "[]",
+        "copy_allowed_outcomes": "[]",
+        "copy_required_keywords": "[]",
+        "copy_blocked_keywords": "[]",
         "cex_gate_crypto": "true",
         "max_cex_dispersion_bps": "25",
         "ui_mode": "both",
@@ -110,6 +122,16 @@ def default_kv_seed() -> dict[str, str]:
         "orderbook_gate_enabled": "false",
         "orderbook_min_bid_share": "0.38",
         "ws_allow_anonymous": "false",
+        "spread_gate_enabled": "false",
+        "max_spread_bps": "350",
+        "resolution_gate_enabled": "false",
+        "min_hours_to_resolution": "24",
+        "max_condition_exposure_usd": "0",
+        "max_category_exposure_usd": "0",
+        "category_exposure_caps": "{}",
+        "max_daily_notional_usd": "0",
+        "daily_notional_window_hours": "24",
+        "circuit_breaker_max_fails": "0",
     }
     for ck in cats:
         out[ck] = "true"
@@ -162,6 +184,18 @@ class Settings:
     zscore_min_samples: int = 12
     copy_watch_wallets: list[str] = field(default_factory=list)
     copy_poll_seconds: int = 15
+    copy_min_usd: float = 0.0
+    copy_max_usd: float = 0.0
+    copy_min_price: float = 0.0
+    copy_max_price: float = 1.0
+    copy_price_buffer_bps: float = 300.0
+    copy_min_wallet_score: float = 0.0
+    copy_wallet_score_overrides: dict[str, float] = field(default_factory=dict)
+    copy_allow_unknown_outcome: bool = True
+    copy_allowed_categories: list[str] = field(default_factory=list)
+    copy_allowed_outcomes: list[str] = field(default_factory=list)
+    copy_required_keywords: list[str] = field(default_factory=list)
+    copy_blocked_keywords: list[str] = field(default_factory=list)
 
     cex_gate_crypto: bool = True
     max_cex_dispersion_bps: float = 25.0
@@ -188,6 +222,17 @@ class Settings:
     # WebSocket /dashboard stream: if false, require valid session cookie.
     ws_allow_anonymous: bool = False
 
+    spread_gate_enabled: bool = False
+    max_spread_bps: float = 350.0
+    resolution_gate_enabled: bool = False
+    min_hours_to_resolution: float = 24.0
+    max_condition_exposure_usd: float = 0.0
+    max_category_exposure_usd: float = 0.0
+    category_exposure_caps: dict[str, float] = field(default_factory=dict)
+    max_daily_notional_usd: float = 0.0
+    daily_notional_window_hours: float = 24.0
+    circuit_breaker_max_fails: int = 0
+
     @classmethod
     def from_kv(cls, kv: dict[str, str], *, merge_os_environ: bool = False) -> Settings:
         def g(key: str, default: str = "") -> str:
@@ -199,6 +244,44 @@ class Settings:
             if v is None:
                 return default
             return str(v)
+
+        def json_list_lower(key: str) -> list[str]:
+            raw = g(key, "[]")
+            if not raw:
+                return []
+            try:
+                arr = json.loads(raw)
+            except json.JSONDecodeError:
+                return []
+            if not isinstance(arr, list):
+                return []
+            out: list[str] = []
+            for x in arr:
+                sx = str(x).strip().lower()
+                if sx:
+                    out.append(sx)
+            return out
+
+        def json_obj_float(key: str) -> dict[str, float]:
+            raw = g(key, "{}")
+            if not raw:
+                return {}
+            try:
+                obj = json.loads(raw)
+            except json.JSONDecodeError:
+                return {}
+            if not isinstance(obj, dict):
+                return {}
+            out: dict[str, float] = {}
+            for k, v in obj.items():
+                sk = str(k).strip().lower()
+                if not sk:
+                    continue
+                try:
+                    out[sk] = float(v)
+                except (TypeError, ValueError):
+                    continue
+            return out
 
         cat_keys = [
             "ENABLE_CRYPTO_SHORT",
@@ -279,6 +362,18 @@ class Settings:
             zscore_min_samples=_i(g("zscore_min_samples", "12"), 12),
             copy_watch_wallets=wallets,
             copy_poll_seconds=_i(g("copy_poll_seconds", "15"), 15),
+            copy_min_usd=_f(g("copy_min_usd", "0"), 0.0),
+            copy_max_usd=_f(g("copy_max_usd", "0"), 0.0),
+            copy_min_price=_f(g("copy_min_price", "0"), 0.0),
+            copy_max_price=_f(g("copy_max_price", "1"), 1.0),
+            copy_price_buffer_bps=_f(g("copy_price_buffer_bps", "300"), 300.0),
+            copy_min_wallet_score=_f(g("copy_min_wallet_score", "0"), 0.0),
+            copy_wallet_score_overrides=json_obj_float("copy_wallet_score_overrides"),
+            copy_allow_unknown_outcome=_b(g("copy_allow_unknown_outcome", "true"), True),
+            copy_allowed_categories=json_list_lower("copy_allowed_categories"),
+            copy_allowed_outcomes=json_list_lower("copy_allowed_outcomes"),
+            copy_required_keywords=json_list_lower("copy_required_keywords"),
+            copy_blocked_keywords=json_list_lower("copy_blocked_keywords"),
             cex_gate_crypto=_b(g("cex_gate_crypto", "true"), True),
             max_cex_dispersion_bps=_f(g("max_cex_dispersion_bps", "25"), 25.0),
             category_flags=flags,
@@ -296,6 +391,16 @@ class Settings:
             orderbook_gate_enabled=_b(g("orderbook_gate_enabled", "false"), False),
             orderbook_min_bid_share=_f(g("orderbook_min_bid_share", "0.38"), 0.38),
             ws_allow_anonymous=_b(g("ws_allow_anonymous", "false"), False),
+            spread_gate_enabled=_b(g("spread_gate_enabled", "false"), False),
+            max_spread_bps=_f(g("max_spread_bps", "350"), 350.0),
+            resolution_gate_enabled=_b(g("resolution_gate_enabled", "false"), False),
+            min_hours_to_resolution=_f(g("min_hours_to_resolution", "24"), 24.0),
+            max_condition_exposure_usd=_f(g("max_condition_exposure_usd", "0"), 0.0),
+            max_category_exposure_usd=_f(g("max_category_exposure_usd", "0"), 0.0),
+            category_exposure_caps=json_obj_float("category_exposure_caps"),
+            max_daily_notional_usd=_f(g("max_daily_notional_usd", "0"), 0.0),
+            daily_notional_window_hours=_f(g("daily_notional_window_hours", "24"), 24.0),
+            circuit_breaker_max_fails=_i(g("circuit_breaker_max_fails", "0"), 0),
         )
 
     @classmethod
@@ -328,6 +433,18 @@ class Settings:
             "zscore_window": self.zscore_window,
             "zscore_entry_abs": self.zscore_entry_abs,
             "copy_wallets_n": len(self.copy_watch_wallets),
+            "copy_min_usd": self.copy_min_usd,
+            "copy_max_usd": self.copy_max_usd,
+            "copy_min_price": self.copy_min_price,
+            "copy_max_price": self.copy_max_price,
+            "copy_price_buffer_bps": self.copy_price_buffer_bps,
+            "copy_min_wallet_score": self.copy_min_wallet_score,
+            "copy_wallet_score_overrides": dict(self.copy_wallet_score_overrides),
+            "copy_allow_unknown_outcome": self.copy_allow_unknown_outcome,
+            "copy_allowed_categories": list(self.copy_allowed_categories),
+            "copy_allowed_outcomes": list(self.copy_allowed_outcomes),
+            "copy_required_keywords": list(self.copy_required_keywords),
+            "copy_blocked_keywords": list(self.copy_blocked_keywords),
             "cex_gate_crypto": self.cex_gate_crypto,
             "max_cex_dispersion_bps": self.max_cex_dispersion_bps,
             "trading_paused": self.trading_paused,
@@ -345,4 +462,14 @@ class Settings:
             "orderbook_gate_enabled": self.orderbook_gate_enabled,
             "orderbook_min_bid_share": self.orderbook_min_bid_share,
             "ws_allow_anonymous": self.ws_allow_anonymous,
+            "spread_gate_enabled": self.spread_gate_enabled,
+            "max_spread_bps": self.max_spread_bps,
+            "resolution_gate_enabled": self.resolution_gate_enabled,
+            "min_hours_to_resolution": self.min_hours_to_resolution,
+            "max_condition_exposure_usd": self.max_condition_exposure_usd,
+            "max_category_exposure_usd": self.max_category_exposure_usd,
+            "category_exposure_caps": dict(self.category_exposure_caps),
+            "max_daily_notional_usd": self.max_daily_notional_usd,
+            "daily_notional_window_hours": self.daily_notional_window_hours,
+            "circuit_breaker_max_fails": self.circuit_breaker_max_fails,
         }

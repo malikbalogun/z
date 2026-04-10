@@ -3,87 +3,527 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin — Polymarket bot</title>
+  <title>Admin - Polymarket bot</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 0 auto; padding: 24px; background: #070a10; color: #e8edf5; line-height: 1.5; }
-    h1 { font-size: 1.2rem; }
-    h2 { font-size: 1rem; margin-top: 28px; color: #7a8aa0; }
-    a { color: #5cb8ff; }
-    textarea, input { width: 100%; box-sizing: border-box; padding: 10px; border-radius: 8px; border: 1px solid #243044; background: #151c26; color: #e8edf5; }
-    textarea { min-height: 220px; font-family: ui-monospace, monospace; font-size: 0.78rem; }
-    button { margin-top: 10px; padding: 10px 16px; border-radius: 8px; border: 1px solid #243044; background: #1a2433; color: #e8edf5; cursor: pointer; }
-    .ok { color: #3dff9c; }
-    .bad { color: #ff5c5c; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 12px; }
-    th, td { text-align: left; padding: 8px; border-bottom: 1px solid #1a2433; }
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    @media (max-width: 640px) { .row { grid-template-columns: 1fr; } }
+    body { font-family: system-ui, sans-serif; max-width: 1100px; margin: 0 auto; padding: 24px; background: #070a10; color: #e8edf5; line-height: 1.45; }
+    h1 { font-size: 1.2rem; margin-bottom: 4px; }
+    h2 { font-size: 1rem; margin: 18px 0 8px; color: #9bb0ca; }
+    h3 { font-size: 0.92rem; margin: 18px 0 8px; color: #8fa5bf; }
+    a { color: #6cc0ff; }
+    .topline { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .muted { color:#7a8aa0; font-size:0.83rem; }
+    .tabs { display:flex; gap:8px; flex-wrap:wrap; margin: 14px 0 8px; }
+    .tabbtn { margin:0; padding:8px 12px; border-radius:8px; border:1px solid #243044; background:#131b28; color:#cfd8e7; cursor:pointer; }
+    .tabbtn.active { background:#223650; border-color:#37628d; color:#fff; }
+    .tab { display:none; padding:12px; border:1px solid #1d2738; border-radius:10px; background:#0b111a; margin-top:10px; }
+    .tab.active { display:block; }
+    .row { display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+    .row3 { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 12px; }
+    .box { margin-top:10px; padding:10px; border:1px solid #1d2738; border-radius:10px; background:#0c141f; }
+    .grid-cats { display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap:8px; }
+    label { font-size:0.82rem; color:#9bb0ca; display:block; margin-bottom:3px; }
+    input, textarea, select { width:100%; box-sizing:border-box; padding:9px; border-radius:8px; border:1px solid #243044; background:#151c26; color:#e8edf5; }
+    textarea { min-height:90px; font-family: ui-monospace, monospace; font-size: 0.8rem; }
+    button { margin-top:10px; padding:10px 16px; border-radius:8px; border:1px solid #243044; background:#1a2433; color:#e8edf5; cursor:pointer; }
+    .ok { color:#3dff9c; }
+    .bad { color:#ff5c5c; }
+    .controls { display:flex; gap:8px; flex-wrap:wrap; }
+    table { width:100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 8px; }
+    th, td { text-align:left; padding:8px; border-bottom:1px solid #1a2433; vertical-align: top; }
+    .nowrap { white-space:nowrap; }
+    .warn { color:#ffc675; font-size:0.82rem; }
+    @media (max-width: 820px) {
+      .row, .row3, .grid-cats { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
-  <h1>Admin panel</h1>
-  <p><a href="/">Dashboard</a> · <a href="#" id="logout">Logout</a></p>
+  <div class="topline">
+    <div>
+      <h1>Admin panel</h1>
+      <div><a href="/">Dashboard</a> · <a href="#" id="logout">Logout</a></div>
+    </div>
+    <div class="controls">
+      <button type="button" id="btn_save_all">Save settings</button>
+      <button type="button" id="btn_reload">Apply to running bot</button>
+    </div>
+  </div>
   <p id="rolewarn" class="bad" style="display:none;"></p>
   <p id="msg"></p>
 
   <div id="adminBody">
-
-  <h2>Users</h2>
-  <div class="row">
-    <div><label>New username</label><input id="n_un"></div>
-    <div><label>New password</label><input id="n_pw" type="password"></div>
-  </div>
-  <div class="row">
-    <div><label>Role</label>
-      <select id="n_role" style="width:100%;padding:10px;border-radius:8px;background:#151c26;color:#e8edf5;border:1px solid #243044;">
-        <option value="user">user</option>
-        <option value="admin">admin</option>
-      </select>
+    <div class="tabs">
+      <button class="tabbtn active" data-tab="tab-general">General</button>
+      <button class="tabbtn" data-tab="tab-agents">Agents</button>
+      <button class="tabbtn" data-tab="tab-copy">Copy trading</button>
+      <button class="tabbtn" data-tab="tab-risk">Risk & execution</button>
+      <button class="tabbtn" data-tab="tab-signals">Research signals</button>
+      <button class="tabbtn" data-tab="tab-users">Users</button>
+      <button class="tabbtn" data-tab="tab-advanced">Advanced JSON</button>
     </div>
-    <div style="align-self:end"><button type="button" id="btn_user">Create user</button></div>
-  </div>
-  <table><thead><tr><th>ID</th><th>Username</th><th>Role</th><th>Active</th></tr></thead><tbody id="users"></tbody></table>
 
-  <h2>Bot settings (JSON merge)</h2>
-  <p style="font-size:0.8rem;color:#7a8aa0;">Keys match DB store (e.g. polymarket_private_key, dry_run, default_bet_usd). Private key is masked in GET — paste full key here to update.</p>
-  <textarea id="settings_json"></textarea>
-  <button type="button" id="btn_save">Save settings</button>
-  <button type="button" id="btn_reload">Apply to running bot</button>
+    <section id="tab-general" class="tab active">
+      <h2>Core bot</h2>
+      <div class="row3">
+        <div><label>UI mode</label><select id="ui_mode"><option>both</option><option>dashboard</option><option>terminal</option></select></div>
+        <div><label>Host</label><input id="host" placeholder="0.0.0.0"></div>
+        <div><label>Port</label><input id="port" type="number"></div>
+      </div>
+      <div class="row3">
+        <div><label><input id="dry_run" type="checkbox"> Dry run</label></div>
+        <div><label><input id="trading_paused" type="checkbox"> Trading paused</label></div>
+        <div><label>Scan interval (seconds)</label><input id="scan_interval_seconds" type="number"></div>
+      </div>
+      <div class="row3">
+        <div><label>Default bet USD</label><input id="default_bet_usd" type="number" step="0.01"></div>
+        <div><label>Min bet USD</label><input id="min_bet_usd" type="number" step="0.01"></div>
+        <div><label>Max bet USD</label><input id="max_bet_usd" type="number" step="0.01"></div>
+      </div>
+      <div class="row3">
+        <div><label>Balance buffer USD</label><input id="balance_buffer_usd" type="number" step="0.01"></div>
+        <div><label>Max trades per cycle</label><input id="max_trades_per_cycle" type="number"></div>
+        <div><label>Open orders display limit</label><input id="open_orders_display_limit" type="number"></div>
+      </div>
+      <div class="box">
+        <h3>Exchange credentials</h3>
+        <p class="muted">Key is masked on read. Leave key input blank to keep current key.</p>
+        <div class="row3">
+          <div><label>Private key (paste full key only when updating)</label><input id="polymarket_private_key" placeholder="unchanged"></div>
+          <div><label>Wallet address</label><input id="wallet_address" placeholder="0x..."></div>
+          <div><label>Signature type</label><select id="polymarket_signature_type"><option value="0">0</option><option value="1">1</option></select></div>
+        </div>
+      </div>
+    </section>
 
-  <h2>Signals (articles / keywords)</h2>
-  <p style="font-size:0.8rem;color:#7a8aa0;">Keywords JSON e.g. <code>["trump","election"]</code>. Sentiment -1 bearish … +1 bullish. Optional image upload.</p>
-  <form id="sigf">
-    <label>Title</label><input name="title" required>
-    <label>Summary</label><input name="summary">
-    <label>Source URL</label><input name="source_url">
-    <label>Keywords JSON</label><input name="keywords" value="[]">
-    <label>Sentiment (-1 to 1)</label><input name="sentiment" type="number" step="0.05" value="0">
-    <label>Weight</label><input name="weight" type="number" step="0.1" value="1">
-    <label>Image</label><input name="image" type="file" accept="image/*">
-    <button type="submit">Add signal</button>
-  </form>
-  <table><thead><tr><th>ID</th><th>Title</th><th>Sent.</th><th>Keywords</th></tr></thead><tbody id="sigs"></tbody></table>
+    <section id="tab-agents" class="tab">
+      <h2>Agent toggles and per-agent parameters</h2>
+      <div class="row3">
+        <div><label><input id="agent_value" type="checkbox"> Value edge agent</label></div>
+        <div><label><input id="agent_copy" type="checkbox"> Copy signal agent</label></div>
+        <div><label><input id="agent_latency" type="checkbox"> Latency arb agent</label></div>
+        <div><label><input id="agent_bundle" type="checkbox"> YES+NO bundle arb agent</label></div>
+        <div><label><input id="agent_zscore" type="checkbox"> Z-score dislocation agent</label></div>
+      </div>
+      <div class="box">
+        <h3>Value edge</h3>
+        <div class="row3">
+          <div><label>YES low</label><input id="value_yes_low" type="number" step="0.001"></div>
+          <div><label>YES high</label><input id="value_yes_high" type="number" step="0.001"></div>
+          <div><label>Liquidity floor USD</label><input id="value_liq_floor_usd" type="number" step="1"></div>
+          <div><label>NO trigger YES min</label><input id="value_no_yes_min" type="number" step="0.001"></div>
+          <div><label>NO max price</label><input id="value_no_no_max" type="number" step="0.001"></div>
+          <div><label>Min edge (bps)</label><input id="min_edge_bps" type="number"></div>
+        </div>
+      </div>
+      <div class="box">
+        <h3>Latency / Bundle / Z-score</h3>
+        <div class="row3">
+          <div><label>Latency dislocation min (bps)</label><input id="latency_min_dislocation_bps" type="number" step="1"></div>
+          <div><label>Bundle max pair cost</label><input id="bundle_max_pair_cost" type="number" step="0.0001"></div>
+          <div><label>Bundle min liquidity USD</label><input id="bundle_min_liquidity_usd" type="number"></div>
+          <div><label>Z-score window</label><input id="zscore_window" type="number"></div>
+          <div><label>Z-score abs entry</label><input id="zscore_entry_abs" type="number" step="0.1"></div>
+          <div><label>Z-score min samples</label><input id="zscore_min_samples" type="number"></div>
+        </div>
+      </div>
+      <div class="box">
+        <h3>Intent preview (no execution)</h3>
+        <p class="muted">Runs selected agent(s), applies current sizing and gate checks, and shows pass/fail reasons.</p>
+        <div class="row">
+          <div>
+            <label>Agent</label>
+            <select id="intent_preview_agent">
+              <option value="all">all</option>
+              <option value="value_edge">value_edge</option>
+              <option value="copy_signal">copy_signal</option>
+              <option value="latency_arb">latency_arb</option>
+              <option value="bundle_arb">bundle_arb</option>
+              <option value="zscore_edge">zscore_edge</option>
+            </select>
+          </div>
+          <div>
+            <label>Rows</label>
+            <input id="intent_preview_limit" type="number" value="80">
+          </div>
+        </div>
+        <button type="button" id="btn_intent_preview">Run intents preview</button>
+        <pre id="intent_preview_out" style="font-size:0.72rem;white-space:pre-wrap;max-height:280px;overflow:auto;background:#0a0e14;padding:12px;border-radius:8px;border:1px solid #243044;margin-top:10px;display:none;"></pre>
+      </div>
+    </section>
 
-  <h2>Wallet trade pull (read-only)</h2>
-  <p style="font-size:0.8rem;color:#7a8aa0;">Data API — same idea as collectmarkets2; paste a 0x wallet.</p>
-  <input id="wt_wallet" placeholder="0x…" class="mono" style="max-width:420px;">
-  <button type="button" id="btn_wt">Fetch</button>
-  <pre id="wt_out" class="mono gray" style="font-size:0.72rem;white-space:pre-wrap;max-height:240px;overflow:auto;background:#0a0e14;padding:12px;border-radius:8px;border:1px solid #243044;margin-top:10px;display:none;"></pre>
+    <section id="tab-copy" class="tab">
+      <h2>Copy trading setup</h2>
+      <div class="row">
+        <div>
+          <label>Watch wallets (one 0x address per line)</label>
+          <textarea id="copy_watch_wallets" style="min-height:120px;"></textarea>
+        </div>
+        <div>
+          <label>Required keywords (one per line, optional)</label>
+          <textarea id="copy_required_keywords" style="min-height:120px;"></textarea>
+          <label>Blocked keywords (one per line, optional)</label>
+          <textarea id="copy_blocked_keywords" style="min-height:120px;"></textarea>
+        </div>
+      </div>
+      <div class="row3">
+        <div><label>Poll seconds</label><input id="copy_poll_seconds" type="number"></div>
+        <div><label>Min copied trade USD (0=off)</label><input id="copy_min_usd" type="number" step="0.01"></div>
+        <div><label>Max copied trade USD (0=off)</label><input id="copy_max_usd" type="number" step="0.01"></div>
+      </div>
+      <div class="row3">
+        <div><label>Min copied price</label><input id="copy_min_price" type="number" step="0.001"></div>
+        <div><label>Max copied price</label><input id="copy_max_price" type="number" step="0.001"></div>
+        <div><label>Price buffer (bps)</label><input id="copy_price_buffer_bps" type="number" step="1"></div>
+      </div>
+      <div class="row3">
+        <div><label><input id="copy_allow_unknown_outcome" type="checkbox"> Allow unknown outcome values</label></div>
+        <div><label>Allowed categories (comma-separated; empty = all)</label><input id="copy_allowed_categories" placeholder="politics,crypto_short"></div>
+        <div><label>Allowed outcomes (comma-separated; empty = all)</label><input id="copy_allowed_outcomes" placeholder="yes,no"></div>
+      </div>
+      <div class="row3">
+        <div><label>Min wallet score (0..1)</label><input id="copy_min_wallet_score" type="number" step="0.01"></div>
+        <div><label>Wallet score overrides JSON</label><input id="copy_wallet_score_overrides" placeholder='{"0xabc...":0.15}'></div>
+      </div>
+      <p class="muted">Category options: <span id="cat_hint">loading…</span></p>
+      <div class="box">
+        <h3>Copy preview / debug</h3>
+        <p class="muted">Fetches recent wallet trades and shows pass/fail by your current copy filters.</p>
+        <div class="row">
+          <div><label>Preview wallet (optional; blank = all watched wallets)</label><input id="copy_preview_wallet" placeholder="0x..."></div>
+          <div><label>Rows per wallet</label><input id="copy_preview_limit" type="number" value="30"></div>
+        </div>
+        <button type="button" id="btn_copy_preview">Run copy preview</button>
+        <pre id="copy_preview_out" style="font-size:0.72rem;white-space:pre-wrap;max-height:260px;overflow:auto;background:#0a0e14;padding:12px;border-radius:8px;border:1px solid #243044;margin-top:10px;display:none;"></pre>
+      </div>
+    </section>
 
+    <section id="tab-risk" class="tab">
+      <h2>Execution and risk controls</h2>
+      <div class="box">
+        <h3>CEX / order-book gates</h3>
+        <div class="row3">
+          <div><label><input id="cex_gate_crypto" type="checkbox"> CEX gate for crypto markets</label></div>
+          <div><label><input id="cex_require_dispersion" type="checkbox"> Require CEX dispersion data</label></div>
+          <div><label>Max CEX dispersion bps</label><input id="max_cex_dispersion_bps" type="number" step="0.1"></div>
+          <div><label><input id="orderbook_gate_enabled" type="checkbox"> Order-book imbalance gate</label></div>
+          <div><label>Order-book min bid share</label><input id="orderbook_min_bid_share" type="number" step="0.01"></div>
+          <div><label><input id="spread_gate_enabled" type="checkbox"> Max spread gate</label></div>
+          <div><label>Max spread bps</label><input id="max_spread_bps" type="number" step="1"></div>
+        </div>
+      </div>
+      <div class="box">
+        <h3>Resolution / exposure / daily limits</h3>
+        <div class="row3">
+          <div><label><input id="resolution_gate_enabled" type="checkbox"> Resolution-time gate</label></div>
+          <div><label>Min hours to resolution</label><input id="min_hours_to_resolution" type="number" step="1"></div>
+          <div><label>Max condition exposure USD (0=off)</label><input id="max_condition_exposure_usd" type="number" step="1"></div>
+          <div><label>Max category exposure USD (0=off)</label><input id="max_category_exposure_usd" type="number" step="1"></div>
+          <div><label>Per-category caps JSON</label><input id="category_exposure_caps" placeholder='{"politics":100,"crypto_short":50}'></div>
+          <div><label>Max daily notional USD (0=off)</label><input id="max_daily_notional_usd" type="number" step="1"></div>
+          <div><label>Daily notional window (hours)</label><input id="daily_notional_window_hours" type="number" step="1"></div>
+          <div><label>Circuit breaker max exec fails (0=off)</label><input id="circuit_breaker_max_fails" type="number" step="1"></div>
+        </div>
+      </div>
+      <div class="box">
+        <h3>Execution behavior</h3>
+        <div class="row3">
+          <div><label><input id="strict_execution" type="checkbox"> Strict limit execution</label></div>
+          <div><label><input id="allow_market_fallback" type="checkbox"> Allow market FOK fallback</label></div>
+          <div><label><input id="reconcile_enabled" type="checkbox"> Reconcile fills each cycle</label></div>
+          <div><label>Order TTL seconds</label><input id="order_ttl_seconds" type="number"></div>
+          <div><label>Order poll seconds</label><input id="order_poll_seconds" type="number" step="0.1"></div>
+          <div><label>Reconcile depth</label><input id="reconcile_history_depth" type="number"></div>
+        </div>
+      </div>
+      <div class="box">
+        <h3>Market category allowlist</h3>
+        <div class="grid-cats">
+          <label><input id="ENABLE_CRYPTO_SHORT" type="checkbox"> Crypto short</label>
+          <label><input id="ENABLE_CRYPTO_OTHER" type="checkbox"> Crypto other</label>
+          <label><input id="ENABLE_SPORTS" type="checkbox"> Sports</label>
+          <label><input id="ENABLE_POLITICS" type="checkbox"> Politics</label>
+          <label><input id="ENABLE_MACRO" type="checkbox"> Macro</label>
+          <label><input id="ENABLE_WEATHER" type="checkbox"> Weather</label>
+          <label><input id="ENABLE_SCIENCE_TECH" type="checkbox"> Science/Tech</label>
+          <label><input id="ENABLE_ENTERTAINMENT" type="checkbox"> Entertainment</label>
+          <label><input id="ENABLE_GEOPOLITICS" type="checkbox"> Geopolitics</label>
+          <label><input id="ENABLE_OTHER" type="checkbox"> Other</label>
+        </div>
+      </div>
+    </section>
+
+    <section id="tab-signals" class="tab">
+      <h2>Research signals (optional biasing)</h2>
+      <p class="muted">This does not execute trades directly. It only scales sizing when market text matches your keywords.</p>
+      <form id="sigf" class="box">
+        <div class="row">
+          <div><label>Title</label><input name="title" required></div>
+          <div><label>Source URL</label><input name="source_url"></div>
+        </div>
+        <label>Summary</label><input name="summary">
+        <div class="row3">
+          <div><label>Keywords JSON</label><input name="keywords" value="[]"></div>
+          <div><label>Sentiment (-1..1)</label><input name="sentiment" type="number" step="0.05" value="0"></div>
+          <div><label>Weight</label><input name="weight" type="number" step="0.1" value="1"></div>
+        </div>
+        <label>Image</label><input name="image" type="file" accept="image/*">
+        <button type="submit">Add signal</button>
+      </form>
+      <table>
+        <thead><tr><th>ID</th><th>Title</th><th>Sent</th><th>Weight</th><th>Active</th><th>Keywords</th><th>Actions</th></tr></thead>
+        <tbody id="sigs"></tbody>
+      </table>
+    </section>
+
+    <section id="tab-users" class="tab">
+      <h2>Users</h2>
+      <div class="row">
+        <div><label>New username</label><input id="n_un"></div>
+        <div><label>New password</label><input id="n_pw" type="password"></div>
+      </div>
+      <div class="row">
+        <div><label>Role</label>
+          <select id="n_role"><option value="user">user</option><option value="admin">admin</option></select>
+        </div>
+        <div style="align-self:end"><button type="button" id="btn_user">Create user</button></div>
+      </div>
+      <table><thead><tr><th>ID</th><th>Username</th><th>Role</th><th>Active</th></tr></thead><tbody id="users"></tbody></table>
+
+      <h2>Wallet trade pull (read-only)</h2>
+      <p class="muted">Quick sanity check for wallets you may copy.</p>
+      <div class="row">
+        <div><input id="wt_wallet" placeholder="0x..."></div>
+        <div><button type="button" id="btn_wt">Fetch</button></div>
+      </div>
+      <pre id="wt_out" style="font-size:0.72rem;white-space:pre-wrap;max-height:240px;overflow:auto;background:#0a0e14;padding:12px;border-radius:8px;border:1px solid #243044;margin-top:10px;display:none;"></pre>
+    </section>
+
+    <section id="tab-advanced" class="tab">
+      <h2>Advanced JSON merge</h2>
+      <p class="warn">Advanced mode. Structured tabs are safer; use JSON only for keys not shown above.</p>
+      <textarea id="settings_json" style="min-height:320px;"></textarea>
+      <div class="controls">
+        <button type="button" id="btn_save_json">Save JSON merge</button>
+        <button type="button" id="btn_export_settings">Export settings JSON</button>
+        <button type="button" id="btn_import_settings">Import settings JSON</button>
+      </div>
+      <input id="import_settings_file" type="file" accept="application/json" style="display:none;">
+      <div class="box">
+        <h3>Telemetry</h3>
+        <button type="button" id="btn_telemetry">Refresh telemetry</button>
+        <pre id="telemetry_out" style="font-size:0.72rem;white-space:pre-wrap;max-height:280px;overflow:auto;background:#0a0e14;padding:12px;border-radius:8px;border:1px solid #243044;margin-top:10px;display:none;"></pre>
+      </div>
+    </section>
   </div>
 
 <script>
+let SETTINGS = {};
+let DEFAULTS = {};
+let META = {};
+
+const BOOL_KEYS = [
+  'dry_run','trading_paused','agent_value','agent_copy','agent_latency','agent_bundle','agent_zscore',
+  'cex_gate_crypto','cex_require_dispersion','orderbook_gate_enabled','spread_gate_enabled','resolution_gate_enabled',
+  'strict_execution','allow_market_fallback','reconcile_enabled','copy_allow_unknown_outcome',
+  'ENABLE_CRYPTO_SHORT','ENABLE_CRYPTO_OTHER','ENABLE_SPORTS','ENABLE_POLITICS','ENABLE_MACRO','ENABLE_WEATHER',
+  'ENABLE_SCIENCE_TECH','ENABLE_ENTERTAINMENT','ENABLE_GEOPOLITICS','ENABLE_OTHER'
+];
+
+const NUM_KEYS = [
+  'port','scan_interval_seconds','default_bet_usd','min_bet_usd','max_bet_usd','balance_buffer_usd','max_trades_per_cycle','open_orders_display_limit',
+  'polymarket_signature_type','value_yes_low','value_yes_high','value_liq_floor_usd','value_no_yes_min','value_no_no_max','min_edge_bps',
+  'latency_min_dislocation_bps','bundle_max_pair_cost','bundle_min_liquidity_usd','zscore_window','zscore_entry_abs','zscore_min_samples',
+  'copy_poll_seconds','copy_min_usd','copy_max_usd','copy_min_price','copy_max_price','copy_price_buffer_bps','copy_min_wallet_score',
+  'max_cex_dispersion_bps','orderbook_min_bid_share','max_spread_bps','min_hours_to_resolution','max_condition_exposure_usd',
+  'max_category_exposure_usd','max_daily_notional_usd','daily_notional_window_hours','circuit_breaker_max_fails','order_ttl_seconds','order_poll_seconds','reconcile_history_depth'
+];
+
+const TEXT_KEYS = ['ui_mode','host','wallet_address','copy_wallet_score_overrides','category_exposure_caps'];
+
+const LIST_KEYS = ['copy_watch_wallets','copy_required_keywords','copy_blocked_keywords'];
+
 async function api(path, opt={}) {
   const r = await fetch(path, { credentials: 'include', ...opt });
   if (r.status === 401) { window.location.href = '/login'; throw new Error('auth'); }
   return r;
 }
+
 function msg(t, ok) {
   const el = document.getElementById('msg');
   el.textContent = t;
   el.className = ok ? 'ok' : 'bad';
 }
-async function load() {
+
+async function readApiError(r) {
+  try {
+    const j = await r.json();
+    if (j && j.detail && typeof j.detail === 'object' && j.detail.errors) {
+      const errs = j.detail.errors;
+      const keys = Object.keys(errs);
+      return `Validation failed: ${keys.slice(0, 8).map(k => `${k}: ${errs[k]}`).join(' | ')}`;
+    }
+    if (j && typeof j.detail === 'string') return j.detail;
+    return JSON.stringify(j);
+  } catch {
+    try { return await r.text(); } catch { return `HTTP ${r.status}`; }
+  }
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = String(s ?? '');
+  return d.innerHTML;
+}
+
+function parseListText(v) {
+  return String(v || '').split(/\n|,/).map(x => x.trim()).filter(Boolean);
+}
+
+function setVal(id, v) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  if (el.type === 'checkbox') el.checked = String(v).toLowerCase() === 'true' || v === true || v === 1 || String(v) === '1';
+  else el.value = (v ?? '');
+}
+
+function getVal(id) {
+  const el = document.getElementById(id);
+  if (!el) return undefined;
+  if (el.type === 'checkbox') return !!el.checked;
+  return el.value;
+}
+
+function applySettingsToForm() {
+  [...BOOL_KEYS, ...NUM_KEYS, ...TEXT_KEYS].forEach(k => setVal(k, SETTINGS[k] ?? DEFAULTS[k]));
+  setVal('copy_watch_wallets', (() => {
+    try { return (JSON.parse(SETTINGS.copy_watch_wallets || DEFAULTS.copy_watch_wallets || '[]') || []).join('\n'); }
+    catch { return ''; }
+  })());
+  setVal('copy_required_keywords', (() => {
+    try { return (JSON.parse(SETTINGS.copy_required_keywords || DEFAULTS.copy_required_keywords || '[]') || []).join('\n'); }
+    catch { return ''; }
+  })());
+  setVal('copy_blocked_keywords', (() => {
+    try { return (JSON.parse(SETTINGS.copy_blocked_keywords || DEFAULTS.copy_blocked_keywords || '[]') || []).join('\n'); }
+    catch { return ''; }
+  })());
+  setVal('copy_allowed_categories', (() => {
+    try { return (JSON.parse(SETTINGS.copy_allowed_categories || DEFAULTS.copy_allowed_categories || '[]') || []).join(','); }
+    catch { return ''; }
+  })());
+  setVal('copy_allowed_outcomes', (() => {
+    try { return (JSON.parse(SETTINGS.copy_allowed_outcomes || DEFAULTS.copy_allowed_outcomes || '[]') || []).join(','); }
+    catch { return ''; }
+  })());
+  setVal('copy_wallet_score_overrides', (() => {
+    try { return JSON.stringify(JSON.parse(SETTINGS.copy_wallet_score_overrides || DEFAULTS.copy_wallet_score_overrides || '{}')); }
+    catch { return '{}'; }
+  })());
+  setVal('category_exposure_caps', (() => {
+    try { return JSON.stringify(JSON.parse(SETTINGS.category_exposure_caps || DEFAULTS.category_exposure_caps || '{}')); }
+    catch { return '{}'; }
+  })());
+  const pk = SETTINGS.polymarket_private_key || '';
+  const pkInput = document.getElementById('polymarket_private_key');
+  pkInput.value = '';
+  pkInput.placeholder = pk ? 'current: ' + pk : 'paste full key to update';
+  document.getElementById('settings_json').value = JSON.stringify(SETTINGS, null, 2);
+  const c = (META.categories || []).join(', ') || 'crypto_short, crypto_other, politics, sports, ...';
+  document.getElementById('cat_hint').textContent = c;
+}
+
+function collectSettingsFromForm() {
+  const out = {};
+  BOOL_KEYS.forEach(k => out[k] = getVal(k) ? 'true' : 'false');
+  NUM_KEYS.forEach(k => out[k] = String(getVal(k) ?? ''));
+  TEXT_KEYS.forEach(k => out[k] = String(getVal(k) ?? ''));
+
+  const wallets = parseListText(getVal('copy_watch_wallets')).map(x => x.toLowerCase());
+  const req = parseListText(getVal('copy_required_keywords')).map(x => x.toLowerCase());
+  const blk = parseListText(getVal('copy_blocked_keywords')).map(x => x.toLowerCase());
+  const cats = parseListText(getVal('copy_allowed_categories')).map(x => x.toLowerCase());
+  const outs = parseListText(getVal('copy_allowed_outcomes')).map(x => x.toLowerCase());
+
+  out.copy_watch_wallets = JSON.stringify(wallets);
+  out.copy_required_keywords = JSON.stringify(req);
+  out.copy_blocked_keywords = JSON.stringify(blk);
+  out.copy_allowed_categories = JSON.stringify(cats);
+  out.copy_allowed_outcomes = JSON.stringify(outs);
+  try {
+    out.copy_wallet_score_overrides = JSON.stringify(JSON.parse(String(getVal('copy_wallet_score_overrides') || '{}')));
+  } catch {
+    out.copy_wallet_score_overrides = '{}';
+  }
+  try {
+    out.category_exposure_caps = JSON.stringify(JSON.parse(String(getVal('category_exposure_caps') || '{}')));
+  } catch {
+    out.category_exposure_caps = '{}';
+  }
+
+  const pk = String(getVal('polymarket_private_key') || '').trim();
+  if (pk) out.polymarket_private_key = pk;
+
+  return out;
+}
+
+async function loadUsers() {
+  const u = await (await api('/api/admin/users')).json();
+  document.getElementById('users').innerHTML = u.map(x => `<tr><td>${x.id}</td><td>${esc(x.username)}</td><td>${esc(x.role)}</td><td>${x.is_active}</td></tr>`).join('');
+}
+
+async function loadSignals() {
+  const sig = await (await api('/api/admin/signals')).json();
+  document.getElementById('sigs').innerHTML = sig.map(x => `
+    <tr>
+      <td>${x.id}</td>
+      <td>${esc(x.title)}</td>
+      <td><input data-sent="${x.id}" type="number" step="0.05" value="${x.sentiment}" style="max-width:90px"></td>
+      <td><input data-wgt="${x.id}" type="number" step="0.1" value="${x.weight}" style="max-width:90px"></td>
+      <td><input data-act="${x.id}" type="checkbox" ${x.active ? 'checked' : ''}></td>
+      <td class="muted">${esc(JSON.stringify(x.keywords || []))}</td>
+      <td class="nowrap">
+        <button data-upd="${x.id}">Update</button>
+        <button data-del="${x.id}">Delete</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function loadSettings() {
+  const s = await (await api('/api/admin/settings')).json();
+  SETTINGS = s.settings || {};
+  DEFAULTS = s.defaults || {};
+  META = s.meta || {};
+  applySettingsToForm();
+}
+
+async function saveStructured() {
+  const payload = collectSettingsFromForm();
+  const r = await api('/api/admin/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ settings: payload }),
+  });
+  if (!r.ok) { msg(await readApiError(r), false); return; }
+  msg('Settings saved', true);
+  await loadSettings();
+}
+
+async function saveAdvancedJson() {
+  let obj;
+  try { obj = JSON.parse(document.getElementById('settings_json').value); }
+  catch { msg('Invalid JSON', false); return; }
+  const r = await api('/api/admin/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ settings: obj }),
+  });
+  if (!r.ok) { msg(await readApiError(r), false); return; }
+  msg('Advanced settings saved', true);
+  await loadSettings();
+}
+
+async function loadAll() {
   try {
     const me = await (await api('/api/me')).json();
     if ((me.role || '').toLowerCase() !== 'admin') {
@@ -92,63 +532,175 @@ async function load() {
       document.getElementById('rolewarn').textContent = 'This page is for administrators only.';
       return;
     }
-    const u = await (await api('/api/admin/users')).json();
-    document.getElementById('users').innerHTML = u.map(x => `<tr><td>${x.id}</td><td>${x.username}</td><td>${x.role}</td><td>${x.is_active}</td></tr>`).join('');
-    const s = await (await api('/api/admin/settings')).json();
-    document.getElementById('settings_json').value = JSON.stringify(s.settings, null, 2);
-    const sig = await (await api('/api/admin/signals')).json();
-    document.getElementById('sigs').innerHTML = sig.map(x => `<tr><td>${x.id}</td><td>${escapeHtml(x.title)}</td><td>${x.sentiment}</td><td>${escapeHtml(JSON.stringify(x.keywords))}</td></tr>`).join('');
+    await Promise.all([loadUsers(), loadSettings(), loadSignals()]);
   } catch (e) {
-    if (e.message !== 'auth') msg(String(e), false);
+    if (String(e.message) !== 'auth') msg(String(e), false);
   }
 }
-function escapeHtml(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}
-document.getElementById('btn_user').onclick = async () => {
-  const body = { username: document.getElementById('n_un').value.trim(), password: document.getElementById('n_pw').value, role: document.getElementById('n_role').value };
-  const r = await api('/api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  if (!r.ok) { msg(await r.text(), false); return; }
-  msg('User created', true);
-  load();
-};
-document.getElementById('btn_save').onclick = async () => {
-  let obj;
-  try { obj = JSON.parse(document.getElementById('settings_json').value); } catch { msg('Invalid JSON', false); return; }
-  const r = await api('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings: obj }) });
-  if (!r.ok) { msg(await r.text(), false); return; }
-  msg('Settings saved to database', true);
-};
+
+// Tabs
+document.querySelectorAll('.tabbtn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tabbtn').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    btn.classList.add('active');
+    const id = btn.getAttribute('data-tab');
+    document.getElementById(id).classList.add('active');
+  });
+});
+
+document.getElementById('btn_save_all').onclick = saveStructured;
+document.getElementById('btn_save_json').onclick = saveAdvancedJson;
 document.getElementById('btn_reload').onclick = async () => {
   const r = await api('/api/admin/reload-settings', { method: 'POST' });
-  if (!r.ok) { msg(await r.text(), false); return; }
+  if (!r.ok) { msg(await readApiError(r), false); return; }
   msg('Running bot reloaded in-memory settings', true);
 };
+
+document.getElementById('btn_user').onclick = async () => {
+  const body = {
+    username: document.getElementById('n_un').value.trim(),
+    password: document.getElementById('n_pw').value,
+    role: document.getElementById('n_role').value,
+  };
+  const r = await api('/api/admin/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) { msg(await readApiError(r), false); return; }
+  msg('User created', true);
+  await loadUsers();
+};
+
 document.getElementById('sigf').onsubmit = async (ev) => {
   ev.preventDefault();
   const fd = new FormData(ev.target);
   const r = await api('/api/admin/signals', { method: 'POST', body: fd });
-  if (!r.ok) { msg(await r.text(), false); return; }
+  if (!r.ok) { msg(await readApiError(r), false); return; }
   msg('Signal added', true);
   ev.target.reset();
-  load();
+  await loadSignals();
 };
+
+document.getElementById('sigs').onclick = async (ev) => {
+  const t = ev.target;
+  if (!(t instanceof HTMLElement)) return;
+  const idU = t.getAttribute('data-upd');
+  const idD = t.getAttribute('data-del');
+  if (idU) {
+    const sid = Number(idU);
+    const sent = Number((document.querySelector(`[data-sent="${sid}"]`) || {}).value || 0);
+    const wgt = Number((document.querySelector(`[data-wgt="${sid}"]`) || {}).value || 1);
+    const act = !!((document.querySelector(`[data-act="${sid}"]`) || {}).checked);
+    const r = await api(`/api/admin/signals/${sid}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active: act, sentiment: sent, weight: wgt }),
+    });
+    if (!r.ok) { msg(await readApiError(r), false); return; }
+    msg('Signal updated', true);
+    return;
+  }
+  if (idD) {
+    const sid = Number(idD);
+    if (!confirm('Delete signal #' + sid + '?')) return;
+    const r = await api(`/api/admin/signals/${sid}`, { method: 'DELETE' });
+    if (!r.ok) { msg(await readApiError(r), false); return; }
+    msg('Signal deleted', true);
+    await loadSignals();
+  }
+};
+
 document.getElementById('btn_wt').onclick = async () => {
   const w = document.getElementById('wt_wallet').value.trim();
   if (!w) return;
   const r = await api('/api/admin/wallet-trades?wallet=' + encodeURIComponent(w));
   const j = await r.json();
-  document.getElementById('wt_out').style.display = 'block';
-  document.getElementById('wt_out').textContent = JSON.stringify(j, null, 2);
+  const out = document.getElementById('wt_out');
+  out.style.display = 'block';
+  out.textContent = JSON.stringify(j, null, 2);
 };
+
+document.getElementById('btn_copy_preview').onclick = async () => {
+  const w = String(getVal('copy_preview_wallet') || '').trim();
+  const lim = Number(getVal('copy_preview_limit') || 30);
+  const qs = new URLSearchParams();
+  if (w) qs.set('wallet', w);
+  if (Number.isFinite(lim) && lim > 0) qs.set('limit', String(Math.floor(lim)));
+  const r = await api('/api/admin/copy-preview?' + qs.toString());
+  const j = await r.json();
+  const out = document.getElementById('copy_preview_out');
+  out.style.display = 'block';
+  out.textContent = JSON.stringify(j, null, 2);
+};
+
+document.getElementById('btn_intent_preview').onclick = async () => {
+  const a = String(getVal('intent_preview_agent') || 'all').trim();
+  const lim = Number(getVal('intent_preview_limit') || 80);
+  const qs = new URLSearchParams({ agent: a, limit: String(Math.max(1, Math.floor(lim || 80))) });
+  const r = await api('/api/admin/intents-preview?' + qs.toString());
+  const j = await r.json();
+  const out = document.getElementById('intent_preview_out');
+  out.style.display = 'block';
+  out.textContent = JSON.stringify(j, null, 2);
+};
+
+document.getElementById('btn_export_settings').onclick = async () => {
+  const r = await api('/api/admin/settings/export');
+  if (!r.ok) { msg(await readApiError(r), false); return; }
+  const j = await r.json();
+  const blob = new Blob([JSON.stringify(j.settings || {}, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  a.href = url;
+  a.download = `polymarket-settings-${ts}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  msg('Settings exported', true);
+};
+
+document.getElementById('btn_import_settings').onclick = () => {
+  document.getElementById('import_settings_file').click();
+};
+
+document.getElementById('import_settings_file').onchange = async (ev) => {
+  const file = ev.target.files && ev.target.files[0];
+  if (!file) return;
+  let obj;
+  try {
+    obj = JSON.parse(await file.text());
+  } catch {
+    msg('Invalid JSON file', false);
+    return;
+  }
+  const r = await api('/api/admin/settings/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ settings: obj }),
+  });
+  if (!r.ok) { msg(await readApiError(r), false); return; }
+  msg('Settings imported', true);
+  await loadSettings();
+};
+
+document.getElementById('btn_telemetry').onclick = async () => {
+  const r = await api('/api/admin/telemetry');
+  if (!r.ok) { msg(await readApiError(r), false); return; }
+  const j = await r.json();
+  const out = document.getElementById('telemetry_out');
+  out.style.display = 'block';
+  out.textContent = JSON.stringify(j, null, 2);
+};
+
 document.getElementById('logout').onclick = async (e) => {
   e.preventDefault();
   await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
   window.location.href = '/login';
 };
-load();
+
+loadAll();
 </script>
 </body>
 </html>

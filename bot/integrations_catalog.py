@@ -14,6 +14,8 @@ Sources discussed in chat [[Polymarket bot articles]](b7db2423-ffd8-4245-b83b-2c
 9. txbabaxyz/collectmarkets2 — wallet trade history; mirrored via `bot/wallet_trades.py` + admin endpoint.
 10. txbabaxyz/mlmodelpoly — CEX→fair value; mirrored via multi-CEX bundle + optional min-edge bps using agent reference mid.
 
+In-repo execution stack also adds spread / resolution-time / exposure / daily-notional gates and a consecutive-failure circuit breaker (see `Settings` + `orchestrator`).
+
 This module is documentation-only (no runtime imports required).
 """
 

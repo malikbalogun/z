@@ -12,6 +12,7 @@ log = logging.getLogger("polymarket.config")
 _DEFAULTS: dict[str, Any] = {
     "database_url": "sqlite:///./data/app.db",
     "session_secret": "dev-only-change-me-32chars-minimum!!",
+    "webhook_token": "",
     "upload_dir": "./data/uploads",
     "initial_admin_username": "admin",
     "initial_admin_password": "changeme",
