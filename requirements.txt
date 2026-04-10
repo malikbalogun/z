@@ -1,0 +1,9 @@
+py-clob-client>=0.34.0
+fastapi>=0.104.0
+uvicorn>=0.24.0
+httpx>=0.25.0
+rich>=13.7.0
+sqlalchemy>=2.0.0
+bcrypt>=4.0.0
+python-multipart>=0.0.6
+itsdangerous>=2.1.0

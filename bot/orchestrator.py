@@ -1,0 +1,741 @@
+"""Multi-agent orchestrator: Gamma scan, CEX gate, risk, strict execution."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import time
+from typing import Any, Optional, Set
+
+import httpx
+from py_clob_client.client import ClobClient
+
+from bot.agents.bundle_arb import BundleArbAgent
+from bot.agents.copy_signal import CopySignalAgent
+from bot.agents.latency_arb import LatencyArbAgent
+from bot.agents.registry import agents_status
+from bot.agents.value_edge import ValueEdgeAgent
+from bot.agents.zscore_edge import ZScoreEdgeAgent
+from bot.categories import MarketCategory
+from bot.cex import fetch_cex_bundle, infer_crypto_asset_from_text
+from bot.execution import place_limit_gtd_then_wait, place_market_fok_fallback
+from bot.gamma import scan_tradeable_markets
+from bot.http_retry import get_json_retry
+from bot.models import BotState, TradeIntent, TradeRecord, utc_now_iso
+from bot.clob_utils import parse_midpoint
+from bot.reconcile import reconcile_trade_records_inplace, snapshot_open_orders
+from bot.db.kv import append_trade_log
+from bot.execution_plan import plan_execution_units
+from bot.orderbook import orderbook_buy_depth_ok
+from bot.risk import gate_intent
+from bot.settings import Settings
+from bot.signals import intent_signal_boost
+from bot.sizing import pnl_aware_size_multiplier
+from bot.structured_log import slog
+from bot.validate import is_valid_polygon_address, is_valid_private_key_hex
+
+log = logging.getLogger("polymarket.orchestrator")
+
+
+class TradingBot:
+    """Production-style bot with category toggles, agents, and GTD execution."""
+
+    def __init__(self):
+        self.settings = Settings.load()
+        self.state = BotState(mode="dry_run" if self.settings.dry_run else "live")
+        self.clob: Optional[ClobClient] = None
+        self._running = False
+        self._last_api = 0.0
+        self._market_cache: dict[str, dict] = {}
+        self._http: Optional[httpx.AsyncClient] = None
+
+        self._value_agent = ValueEdgeAgent(self.settings)
+        self._copy_agent = CopySignalAgent(self.settings)
+        self._latency_agent = LatencyArbAgent(self.settings)
+        self._bundle_agent = BundleArbAgent(self.settings)
+        self._zscore_agent = ZScoreEdgeAgent(self.settings)
+
+        w = self.settings.wallet_address
+        log.info(
+            "TradingBot init mode=%s value=%s copy=%s lat=%s bundle=%s z=%s wallet=%s…",
+            self.state.mode,
+            self.settings.agent_value,
+            self.settings.agent_copy,
+            self.settings.agent_latency,
+            self.settings.agent_bundle,
+            self.settings.agent_zscore,
+            (w[:12] + "…") if w else "(none)",
+        )
+
+    async def _reload_settings_async(self) -> None:
+        def _run() -> Settings:
+            return Settings.load()
+
+        self.settings = await asyncio.to_thread(_run)
+        self._value_agent.settings = self.settings
+        self._copy_agent.settings = self.settings
+        self._latency_agent.settings = self.settings
+        self._bundle_agent.settings = self.settings
+        self._zscore_agent.settings = self.settings
+
+    async def _rate_limit(self):
+        gap = 0.35
+        elapsed = time.monotonic() - self._last_api
+        if elapsed < gap:
+            await asyncio.sleep(gap - elapsed)
+        self._last_api = time.monotonic()
+
+    async def initialize(self) -> bool:
+        if self.clob is not None:
+            return True
+        if self._http is None:
+            self._http = httpx.AsyncClient(timeout=30.0)
+        if not self.settings.polymarket_private_key:
+            self.state.errors.append("No POLYMARKET_PRIVATE_KEY")
+            return False
+        if not is_valid_private_key_hex(self.settings.polymarket_private_key):
+            self.state.errors.append("Invalid POLYMARKET_PRIVATE_KEY format (expect 64 hex chars, optional 0x)")
+            return False
+        if not self.settings.dry_run:
+            if self.settings.polymarket_signature_type == 1 and not is_valid_polygon_address(
+                self.settings.wallet_address
+            ):
+                self.state.errors.append("Live trading with signature type 1 requires valid WALLET_ADDRESS (proxy/funder)")
+                return False
+            if self.settings.wallet_address and not is_valid_polygon_address(self.settings.wallet_address):
+                self.state.errors.append("Invalid WALLET_ADDRESS format")
+                return False
+        try:
+            st = self.settings.polymarket_signature_type
+            funder = self.settings.wallet_address if st == 1 else None
+            self.clob = ClobClient(
+                host="https://clob.polymarket.com",
+                key=self.settings.polymarket_private_key,
+                chain_id=137,
+                signature_type=st,
+                funder=funder,
+            )
+            creds = self.clob.create_or_derive_api_creds()
+            self.clob.set_api_creds(creds)
+            log.info("CLOB L2 auth OK")
+        except Exception as e:
+            log.exception("CLOB init failed")
+            self.state.errors.append(f"Init: {e}")
+            return False
+
+        await self.refresh_balance()
+        await self.refresh_positions()
+        self.state.started_at = utc_now_iso()
+        self.state.running = True
+        return True
+
+    async def refresh_balance(self):
+        if not self.settings.wallet_address or not self._http:
+            return
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "eth_call",
+            "params": [
+                {
+                    "to": "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
+                    "data": "0x70a08231000000000000000000000000"
+                    + self.settings.wallet_address[2:],
+                },
+                "latest",
+            ],
+        }
+        for url in (
+            "https://polygon-bor-rpc.publicnode.com",
+            "https://rpc.ankr.com/polygon",
+        ):
+            try:
+                r = await self._http.post(url, json=payload)
+                res = r.json().get("result", "0x0")
+                if res and res != "0x":
+                    self.state.usdc_balance = int(res, 16) / 1e6
+                    return
+            except Exception:
+                continue
+
+    def _find_market_by_token(self, token_id: str) -> Optional[dict]:
+        for _, market in self._market_cache.items():
+            tokens = market.get("clobTokenIds", market.get("clob_token_ids", ""))
+            if isinstance(tokens, str):
+                try:
+                    tokens = json.loads(tokens) if tokens.startswith("[") else [tokens]
+                except json.JSONDecodeError:
+                    continue
+            if token_id not in tokens:
+                continue
+            idx = tokens.index(token_id)
+            outcomes = market.get("outcomes", '["Yes", "No"]')
+            if isinstance(outcomes, str):
+                try:
+                    outcomes = json.loads(outcomes)
+                except json.JSONDecodeError:
+                    outcomes = ["Yes", "No"]
+            on = outcomes[idx] if idx < len(outcomes) else "Unknown"
+            return {**market, "outcome_name": on}
+        return None
+
+    async def refresh_positions(self):
+        if not self.settings.wallet_address or not self._http:
+            return
+        w = self.settings.wallet_address.lower()
+        raw: list = []
+        try:
+            j = await get_json_retry(
+                self._http,
+                "https://data-api.polymarket.com/positions",
+                params={"user": w, "sizeThreshold": "0.01"},
+            )
+            raw = j if isinstance(j, list) else []
+        except Exception as e:
+            log.warning("positions API: %s", e)
+            return
+
+        if not self._market_cache and self.clob:
+            await self._gamma_scan()
+
+        positions = []
+        for pos in raw:
+            token_id = (
+                pos.get("asset", {}).get("token_id", "")
+                or pos.get("tokenId", "")
+                or pos.get("token_id", "")
+            )
+            if not token_id:
+                continue
+            size = float(pos.get("size", 0) or 0)
+            if size <= 0.01:
+                continue
+            avg_price = float(pos.get("avgPrice", pos.get("avg_price", 0)) or 0)
+            cur_price = float(pos.get("curPrice", pos.get("current_price", 0)) or 0)
+            mi = self._find_market_by_token(token_id)
+            market_name = pos.get("title", pos.get("question", "")) or (
+                mi.get("question", "") if mi else ""
+            )
+            outcome = pos.get("outcome", "") or (mi.get("outcome_name", "") if mi else "")
+            if self.clob and cur_price <= 0:
+                await self._rate_limit()
+                try:
+                    mid = self.clob.get_midpoint(token_id=token_id)
+                    parsed = parse_midpoint(mid)
+                    if parsed is not None:
+                        cur_price = float(parsed)
+                    elif isinstance(mid, dict):
+                        cur_price = float(mid.get("mid", 0) or 0)
+                    else:
+                        cur_price = 0.0
+                except Exception:
+                    cur_price = avg_price
+            if cur_price <= 0:
+                cur_price = avg_price
+            pnl = (cur_price - avg_price) * size
+            value = cur_price * size
+            positions.append(
+                {
+                    "token_id": token_id,
+                    "market": market_name or token_id[:16],
+                    "outcome": outcome,
+                    "side": pos.get("side", "BUY"),
+                    "size": round(size, 4),
+                    "avg_price": round(avg_price, 4),
+                    "current_price": round(cur_price, 4),
+                    "value": round(value, 2),
+                    "pnl": round(pnl, 2),
+                    "pnl_pct": round((pnl / (avg_price * size)) * 100, 2)
+                    if avg_price * size > 0
+                    else 0,
+                }
+            )
+        self.state.positions = positions
+        self.state.portfolio_value = sum(p["value"] for p in positions)
+        self.state.total_pnl = sum(p["pnl"] for p in positions)
+
+    async def refresh_open_orders(self) -> None:
+        if not self.clob:
+            return
+        await self._rate_limit()
+
+        def _run() -> list[dict[str, Any]]:
+            return snapshot_open_orders(
+                self.clob,
+                display_limit=self.settings.open_orders_display_limit,
+            )
+
+        try:
+            self.state.open_orders = await asyncio.to_thread(_run)
+        except Exception as e:
+            log.warning("open_orders: %s", e)
+
+    async def force_reconcile(self) -> dict[str, Any]:
+        """Refresh open orders + poll recent trade rows (for manual / API trigger)."""
+        if not self.clob:
+            return {"ok": False, "error": "no_clob"}
+        try:
+            await self.refresh_open_orders()
+            n = await asyncio.to_thread(
+                reconcile_trade_records_inplace,
+                self.clob,
+                self.state.trade_history,
+                depth=self.settings.reconcile_history_depth,
+                sleep_between_s=self.settings.reconcile_poll_sleep_s,
+            )
+            self.state.reconcile_updates_last = n
+            self.state.last_reconcile_at = utc_now_iso()
+            return {
+                "ok": True,
+                "updated": n,
+                "open_orders": len(self.state.open_orders),
+                "last_reconcile_at": self.state.last_reconcile_at,
+            }
+        except Exception as e:
+            log.warning("force_reconcile: %s", e)
+            return {"ok": False, "error": str(e)}
+
+    async def _gamma_scan(self) -> list[dict]:
+        assert self._http is not None
+        markets, cache = await scan_tradeable_markets(
+            self._http,
+            self._rate_limit,
+            max_pages=2,
+            min_liquidity=self.settings.min_clob_liquidity_usd,
+            min_volume=self.settings.min_gamma_volume,
+        )
+        self._market_cache = cache
+        self.state.markets_scanned = len(markets)
+        self.state.last_scan = utc_now_iso()
+        return markets
+
+    async def _cex_map_for_intents(self, intents: list[TradeIntent]) -> dict[str, Optional[float]]:
+        """asset -> dispersion_bps (None = skip gate)."""
+        out: dict[str, Optional[float]] = {}
+        assets: Set[str] = set()
+        for it in intents:
+            if it.category not in (MarketCategory.CRYPTO_SHORT, MarketCategory.CRYPTO_OTHER):
+                continue
+            a = infer_crypto_asset_from_text(it.question)
+            if a:
+                assets.add(a)
+        for a in assets:
+            bundle = await fetch_cex_bundle(a)
+            out[a] = bundle.get("dispersion_bps")
+            self.state.cex_snapshot[a] = bundle
+        return out
+
+    def _dispersion_for_intent(
+        self, it: TradeIntent, cex_map: dict[str, Optional[float]]
+    ) -> Optional[float]:
+        if it.category not in (MarketCategory.CRYPTO_SHORT, MarketCategory.CRYPTO_OTHER):
+            return None
+        a = infer_crypto_asset_from_text(it.question)
+        if not a:
+            return None
+        return cex_map.get(a)
+
+    async def _apply_intent_multipliers(self, intent: TradeIntent) -> None:
+        mult = 1.0
+        if self.settings.pnl_sizing_enabled:
+            mult *= await asyncio.to_thread(
+                pnl_aware_size_multiplier,
+                window=int(self.settings.pnl_sizing_window),
+            )
+        if self.settings.signals_enabled:
+            sm, snote = intent_signal_boost(intent.question)
+            mult *= sm
+            if snote:
+                intent.reason = f"{intent.reason};{snote}"
+        intent.size_usd = max(
+            self.settings.min_bet_usd,
+            min(self.settings.max_bet_usd, float(intent.size_usd) * mult),
+        )
+
+    async def _orderbook_gate_passes(self, intent: TradeIntent) -> bool:
+        if not self.clob or not self.settings.orderbook_gate_enabled or intent.side.upper() != "BUY":
+            return True
+        share = float(self.settings.orderbook_min_bid_share)
+        ok_book = await asyncio.to_thread(
+            orderbook_buy_depth_ok,
+            self.clob,
+            intent.token_id,
+            share,
+        )
+        if not ok_book:
+            log.info("skip intent: orderbook bid share < %.2f (%s)", share, intent.strategy)
+            slog(
+                log,
+                self.settings.structured_log,
+                "intent_skipped",
+                strategy=intent.strategy,
+                agent=intent.agent,
+                reason="orderbook_imbalance",
+            )
+        return ok_book
+
+    async def run_cycle(self):
+        if not self.clob or not self._http:
+            return
+
+        log.info("——— cycle start ———")
+        await self._reload_settings_async()
+        slog(
+            log,
+            self.settings.structured_log,
+            "cycle_start",
+            paused=self.settings.trading_paused,
+            dry_run=self.settings.dry_run,
+        )
+        if self.settings.trading_paused:
+            log.info("TRADING_PAUSED: skipping cycle")
+            return
+
+        await self.refresh_balance()
+        await self.refresh_positions()
+
+        reserve = max(0.0, float(self.settings.balance_buffer_usd))
+        if self.state.usdc_balance < self.settings.min_bet_usd + reserve:
+            log.warning("Balance below min bet + buffer")
+            return
+
+        markets = await self._gamma_scan()
+        pos_tokens = {p["token_id"] for p in self.state.positions}
+
+        tasks = []
+        if self.settings.agent_value:
+            tasks.append(self._value_agent.propose(self.clob, markets, pos_tokens, self._rate_limit))
+        if self.settings.agent_latency:
+            tasks.append(self._latency_agent.propose(self.clob, markets, pos_tokens, self._rate_limit))
+        if self.settings.agent_bundle:
+            tasks.append(self._bundle_agent.propose(self.clob, markets, pos_tokens, self._rate_limit))
+        if self.settings.agent_zscore:
+            tasks.append(self._zscore_agent.propose(self.clob, markets, pos_tokens, self._rate_limit))
+        copy_task = None
+        if self.settings.agent_copy and self.settings.copy_watch_wallets:
+            copy_task = self._copy_agent.propose(self._http)
+            tasks.append(copy_task)
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        intents: list[TradeIntent] = []
+        for r in results:
+            if isinstance(r, Exception):
+                log.error("agent error: %s", r)
+                self.state.errors.append(str(r))
+                continue
+            intents.extend(r)
+
+        intents.sort(key=lambda x: -x.priority)
+        cex_map = await self._cex_map_for_intents(intents) if intents else {}
+
+        self.state.last_intents = [
+            {
+                "agent": i.agent,
+                "priority": i.priority,
+                "strategy": i.strategy,
+                "category": i.category.value,
+                "question": i.question[:80],
+                "max_price": i.max_price,
+                "usd": i.size_usd,
+            }
+            for i in intents[:30]
+        ]
+        self.state.agents_fired = list({i.agent for i in intents})
+
+        units = plan_execution_units(intents)
+        placed = 0
+        for unit in units:
+            if placed >= self.settings.max_trades_per_cycle:
+                break
+            if len(unit) == 2:
+                a, b = unit
+                await self._apply_intent_multipliers(a)
+                await self._apply_intent_multipliers(b)
+                da = self._dispersion_for_intent(a, cex_map)
+                db = self._dispersion_for_intent(b, cex_map)
+                ok_a, ra = gate_intent(a, self.settings, da)
+                ok_b, rb = gate_intent(b, self.settings, db)
+                if not ok_a or not ok_b:
+                    log.info("skip bundle: %s / %s (%s)", ra, rb, a.strategy)
+                    slog(
+                        log,
+                        self.settings.structured_log,
+                        "intent_skipped",
+                        strategy=f"{a.strategy}+{b.strategy}",
+                        agent=a.agent,
+                        reason=f"bundle_gate:{ra}/{rb}",
+                    )
+                    continue
+                if not await self._orderbook_gate_passes(a):
+                    continue
+                if not await self._orderbook_gate_passes(b):
+                    continue
+                need = a.size_usd + b.size_usd + reserve
+                if self.state.usdc_balance < need:
+                    log.info("skip bundle: insufficient balance (need %.2f incl. buffer)", need)
+                    continue
+                ok1 = await self._execute_intent(a)
+                if not ok1:
+                    continue
+                ok2 = await self._execute_intent(b)
+                if ok2:
+                    placed += 1
+                else:
+                    log.warning("bundle partial: second leg failed after first submitted")
+                    self.state.errors.append("bundle_partial_second_failed")
+                continue
+
+            intent = unit[0]
+            await self._apply_intent_multipliers(intent)
+            disp = self._dispersion_for_intent(intent, cex_map)
+            if not await self._orderbook_gate_passes(intent):
+                continue
+            ok, reason = gate_intent(intent, self.settings, disp)
+            if not ok:
+                log.info("skip intent: %s (%s)", intent.strategy, reason)
+                slog(
+                    log,
+                    self.settings.structured_log,
+                    "intent_skipped",
+                    strategy=intent.strategy,
+                    agent=intent.agent,
+                    reason=reason,
+                )
+                continue
+            need = intent.size_usd + reserve
+            if self.state.usdc_balance < need:
+                log.info("skip: insufficient balance (need %.2f incl. buffer)", need)
+                continue
+
+            if await self._execute_intent(intent):
+                placed += 1
+
+        self.state.errors = self.state.errors[-25:]
+        log.info("——— cycle end placed=%s ———", placed)
+        slog(
+            log,
+            self.settings.structured_log,
+            "cycle_end",
+            placed=placed,
+            markets_scanned=self.state.markets_scanned,
+            balance=round(self.state.usdc_balance, 2),
+        )
+
+        if self.clob and self.settings.reconcile_enabled:
+            try:
+                await self.refresh_open_orders()
+                n = await asyncio.to_thread(
+                    reconcile_trade_records_inplace,
+                    self.clob,
+                    self.state.trade_history,
+                    depth=self.settings.reconcile_history_depth,
+                    sleep_between_s=self.settings.reconcile_poll_sleep_s,
+                )
+                self.state.reconcile_updates_last = n
+                self.state.last_reconcile_at = utc_now_iso()
+                slog(
+                    log,
+                    self.settings.structured_log,
+                    "reconcile_done",
+                    updated=n,
+                    open_orders=len(self.state.open_orders),
+                )
+            except Exception as e:
+                log.warning("reconcile: %s", e)
+                self.state.errors.append(f"reconcile:{e}")
+
+    async def _execute_intent(self, intent: TradeIntent) -> bool:
+        assert self.clob is not None
+        await self._rate_limit()
+        try:
+            tick = float(self.clob.get_tick_size(intent.token_id))
+        except Exception:
+            tick = 0.01
+        price = round(intent.max_price / tick) * tick
+        price = round(min(max(price, tick), 1.0 - tick), 6)
+        size_shares = round(intent.size_usd / price, 2)
+        if size_shares < 1.0:
+            size_shares = 1.0
+
+        oid, note = await place_limit_gtd_then_wait(
+            self.clob,
+            token_id=intent.token_id,
+            side=intent.side,
+            price=price,
+            size=size_shares,
+            ttl_seconds=self.settings.order_ttl_seconds,
+            poll_seconds=self.settings.order_poll_seconds,
+            dry_run=self.settings.dry_run,
+        )
+
+        if oid is None or note.startswith("create_failed") or note.startswith("post_failed"):
+            self.state.errors.append(f"exec:{intent.strategy}:{note}")
+            log.warning("Execution failed %s: %s", intent.strategy, note)
+            slog(
+                log,
+                self.settings.structured_log,
+                "execution_failed",
+                strategy=intent.strategy,
+                note=str(note)[:200],
+            )
+            return False
+
+        status = "unknown"
+        nlow = note.lower()
+        if note == "dry_run":
+            status = "dry_run"
+        elif note.startswith("filled:"):
+            status = "filled"
+        elif note.startswith("closed:"):
+            status = "closed"
+        elif "cancel" in nlow or "ttl" in nlow:
+            status = "cancelled"
+        else:
+            status = "submitted"
+
+        if status == "filled":
+            self.state.trades_filled += 1
+
+        if (
+            status == "cancelled"
+            and self.settings.allow_market_fallback
+            and not self.settings.strict_execution
+        ):
+            oid2, note2 = await place_market_fok_fallback(
+                self.clob,
+                token_id=intent.token_id,
+                side=intent.side,
+                amount_usd=intent.size_usd,
+                dry_run=self.settings.dry_run,
+            )
+            if oid2:
+                oid = oid2
+                note = note2
+                status = "market_fok"
+            elif str(note2).startswith("market_fok_failed"):
+                self.state.errors.append(f"market_fallback:{note2}")
+
+        rec = TradeRecord(
+            order_id=oid or "none",
+            market_question=intent.question,
+            condition_id=intent.condition_id,
+            token_id=intent.token_id,
+            side=intent.side,
+            price=price,
+            size=size_shares,
+            cost_usd=round(price * size_shares, 2),
+            status=status,
+            timestamp=utc_now_iso(),
+            outcome=intent.outcome,
+            strategy=f"{intent.strategy}:{note}",
+        )
+        self.state.trade_history.append(rec)
+        self.state.trades_placed += 1
+        self.state.last_trade = rec.timestamp
+        log.info("Executed %s -> %s %s", intent.strategy, oid, note)
+        slog(
+            log,
+            self.settings.structured_log,
+            "execution",
+            strategy=intent.strategy,
+            order_id=str(oid)[:24],
+            status=status,
+            note=str(note)[:120],
+        )
+
+        def _persist() -> None:
+            append_trade_log(
+                order_id=str(oid),
+                market_question=intent.question,
+                condition_id=intent.condition_id,
+                token_id=intent.token_id,
+                side=intent.side,
+                price=price,
+                size=size_shares,
+                cost_usd=round(price * size_shares, 2),
+                status=status,
+                strategy=rec.strategy,
+                outcome=intent.outcome,
+                reconcile_note=rec.reconcile_note,
+            )
+
+        try:
+            await asyncio.to_thread(_persist)
+        except Exception as e:
+            log.warning("DB trade log: %s", e)
+
+        return True
+
+    async def run_forever(self):
+        self._running = True
+        self.state.running = True
+        while self._running:
+            if not self.clob:
+                ok = await self.initialize()
+                if not ok:
+                    log.info("Waiting for valid keys in database (Admin → settings)…")
+                    await asyncio.sleep(12)
+                    continue
+            try:
+                await self.run_cycle()
+            except Exception as e:
+                log.exception("cycle")
+                self.state.errors.append(f"cycle: {e}")
+            await asyncio.sleep(self.settings.scan_interval_seconds)
+
+    def stop(self):
+        self._running = False
+        self.state.running = False
+
+    async def aclose(self):
+        if self._http:
+            await self._http.aclose()
+            self._http = None
+
+    def get_state_dict(self) -> dict[str, Any]:
+        return {
+            "mode": self.state.mode,
+            "running": self.state.running,
+            "usdc_balance": self.state.usdc_balance,
+            "portfolio_value": round(self.state.portfolio_value, 2),
+            "total_pnl": round(self.state.total_pnl, 2),
+            "positions": self.state.positions,
+            "open_orders": self.state.open_orders,
+            "trade_history": [
+                {
+                    "order_id": t.order_id,
+                    "market": t.market_question,
+                    "side": t.side,
+                    "outcome": t.outcome,
+                    "price": t.price,
+                    "size": t.size,
+                    "cost": t.cost_usd,
+                    "status": t.status,
+                    "timestamp": t.timestamp,
+                    "strategy": t.strategy,
+                    "reconcile_note": t.reconcile_note,
+                }
+                for t in self.state.trade_history[-50:]
+            ],
+            "markets_scanned": self.state.markets_scanned,
+            "trades_placed": self.state.trades_placed,
+            "trades_filled": self.state.trades_filled,
+            "last_scan": self.state.last_scan,
+            "last_trade": self.state.last_trade,
+            "started_at": self.state.started_at,
+            "errors": self.state.errors[-10:],
+            "default_bet": self.settings.default_bet_usd,
+            "min_bet": self.settings.min_bet_usd,
+            "max_bet": self.settings.max_bet_usd,
+            "wallet": self.settings.wallet_address,
+            "dry_run": self.settings.dry_run,
+            "settings": self.settings.to_public_dict(),
+            "cex_snapshot": self.state.cex_snapshot,
+            "last_intents": self.state.last_intents[:15],
+            "agents_fired": self.state.agents_fired,
+            "agents_detail": agents_status(self.settings),
+            "open_orders_count": len(self.state.open_orders),
+            "last_reconcile_at": self.state.last_reconcile_at,
+            "reconcile_updates_last": self.state.reconcile_updates_last,
+        }

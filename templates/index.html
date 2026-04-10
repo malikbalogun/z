@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Polymarket Bot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #070a10;
+  --surface: #0f1419;
+  --surface2: #151c26;
+  --border: #243044;
+  --text: #e8edf5;
+  --muted: #7a8aa0;
+  --accent: #3dff9c;
+  --accent-dim: #1a6b45;
+  --warn: #ffb020;
+  --danger: #ff5c5c;
+  --info: #5cb8ff;
+  --radius: 10px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background: var(--bg);
+  background-image: radial-gradient(ellipse 120% 80% at 50% -20%, rgba(61,255,156,0.08), transparent 50%);
+  color: var(--text);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  padding: 24px;
+  min-height: 100vh;
+  line-height: 1.45;
+}
+.mono { font-family: 'IBM Plex Mono', monospace; }
+
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  margin-bottom: 28px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+.topbar h1 {
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.topbar h1 span { color: var(--accent); }
+.badges { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--muted);
+}
+.badge.live { border-color: var(--accent-dim); color: var(--accent); background: rgba(61,255,156,0.08); }
+.badge.dry { border-color: #664400; color: var(--warn); background: rgba(255,176,32,0.1); }
+.badge.ui { border-color: #1a4a6b; color: var(--info); }
+.badge.run { color: var(--accent); }
+.badge.stop { color: var(--danger); }
+
+.actions { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+.btn {
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  background: var(--surface2);
+  color: var(--text);
+  transition: background 0.15s, border-color 0.15s;
+}
+.btn:hover { background: #1a2433; border-color: #354a66; }
+.btn-scan { border-color: #2a5080; color: var(--info); }
+.btn-kill { border-color: #6b2020; color: var(--danger); }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+.card .label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.card .value { font-size: 1.35rem; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--accent); }
+.card .value.red { color: var(--danger); }
+.card .sub { font-size: 0.7rem; color: var(--muted); margin-top: 6px; }
+
+.section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  margin-bottom: 16px;
+}
+.section h2 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+
+.agent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+.agent-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--surface2);
+}
+.agent-card.off { opacity: 0.55; }
+.agent-card h3 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.agent-card .meta { font-size: 0.7rem; color: var(--muted); margin-bottom: 8px; }
+.agent-card p { font-size: 0.78rem; color: var(--text); opacity: 0.9; }
+.pill {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.pill-on { background: rgba(61,255,156,0.2); color: var(--accent); }
+.pill-off { background: #2a2222; color: var(--muted); }
+
+.cat-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.cat-pill {
+  font-size: 0.65rem;
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+.cat-pill.on { border-color: var(--accent-dim); color: var(--accent); }
+
+table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+th {
+  text-align: left;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+td { padding: 10px 6px; border-bottom: 1px solid #121820; vertical-align: top; }
+.green { color: var(--accent); }
+.red { color: var(--danger); }
+.yellow { color: var(--warn); }
+.gray { color: var(--muted); }
+
+.errors {
+  background: rgba(255,92,92,0.06);
+  border: 1px solid #4a2020;
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+.errors h3 { color: var(--danger); font-size: 0.8rem; margin-bottom: 8px; }
+.errors li { font-size: 0.78rem; color: #ffaaaa; margin-bottom: 4px; margin-left: 1rem; }
+
+#status { font-size: 0.72rem; color: var(--muted); margin-top: 20px; }
+.hint { font-size: 0.68rem; color: var(--muted); margin-top: 10px; line-height: 1.5; }
+code { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; background: #121820; padding: 2px 6px; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1><span>◆</span> Polymarket bot</h1>
+  <div class="badges">
+    <span id="uiModeBadge" class="badge ui">UI: …</span>
+    <span id="modeTag" class="badge live">LIVE</span>
+    <span id="runStatus" class="badge run">…</span>
+  </div>
+  <div class="actions">
+    <a class="btn btn-scan" href="/admin" style="text-decoration:none;display:inline-block;">Admin</a>
+    <button type="button" class="btn btn-scan" onclick="forceScan()">Force scan</button>
+    <button type="button" class="btn btn-scan" onclick="forceReconcile()" title="Refresh open orders + CLOB order status for recent trades">Reconcile</button>
+    <button type="button" class="btn btn-kill" onclick="killBot()">Stop loop</button>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card"><div class="label">USDC balance</div><div class="value mono" id="balance">$0.00</div><div class="sub">Available</div></div>
+  <div class="card"><div class="label">Portfolio</div><div class="value mono" id="portfolio">$0.00</div><div class="sub">Open positions</div></div>
+  <div class="card"><div class="label">Unrealized P&amp;L</div><div class="value mono" id="pnl">$0.00</div><div class="sub">Mark-to-mid</div></div>
+  <div class="card"><div class="label">Trades placed</div><div class="value mono" id="trades">0</div><div class="sub" id="lastTrade">—</div></div>
+  <div class="card"><div class="label">Markets scanned</div><div class="value mono" id="scanned">0</div><div class="sub" id="lastScan">—</div></div>
+  <div class="card"><div class="label">Open CLOB orders</div><div class="value mono" id="openOrders">0</div><div class="sub" id="reconcileMeta">Reconcile: —</div></div>
+  <div class="card"><div class="label">Default bet</div><div class="value mono" id="betSize">$5</div><div class="sub" id="betRange">min – max</div></div>
+</div>
+
+<div id="errorsBox" class="errors" style="display:none;">
+  <h3>Errors</h3>
+  <ul id="errorsList"></ul>
+</div>
+
+<div class="section">
+  <h2>Agents (2)</h2>
+  <p class="gray" style="font-size:0.78rem;margin-bottom:12px;">
+    The orchestrator runs enabled agents in parallel each cycle, merges intents by priority, then risk-gates and executes (strict GTD limits by default).
+  </p>
+  <div id="agentRoster" class="agent-grid"></div>
+  <div class="hint">Copy agent needs <code>AGENT_COPY=true</code> and <code>COPY_WATCH_WALLETS=0x…</code>. First poll only seeds history (no replay burst).</div>
+  <div id="catPills" class="cat-row"></div>
+</div>
+
+<div class="section">
+  <h2>Last cycle — intents sample</h2>
+  <pre id="agentsInfo" class="mono gray" style="font-size:0.72rem;white-space:pre-wrap;max-height:200px;overflow:auto;background:#0a0e14;padding:12px;border-radius:8px;border:1px solid var(--border);">—</pre>
+  <p class="hint">Sign in via <a href="/login">/login</a>. Admins can run scan / reconcile / stop; use <code>/admin</code> for keys and bot settings (stored in DB).</p>
+</div>
+
+<div class="section">
+  <h2>Working orders (CLOB)</h2>
+  <table>
+    <thead><tr><th>Order ID</th><th>Token</th><th>Side</th><th>Price</th><th>Matched</th><th>Status</th></tr></thead>
+    <tbody id="openOrdersBody"><tr><td colspan="6" class="gray">None</td></tr></tbody>
+  </table>
+</div>
+
+<div class="section">
+  <h2>Open positions</h2>
+  <table>
+    <thead><tr><th>Market</th><th>Outcome</th><th>Shares</th><th>Avg</th><th>Mid</th><th>Value</th><th>P&amp;L</th></tr></thead>
+    <tbody id="positionsBody"><tr><td colspan="7" class="gray">Loading…</td></tr></tbody>
+  </table>
+</div>
+
+<div class="section">
+  <h2>Trade history</h2>
+  <table>
+    <thead><tr><th>When</th><th>Market</th><th>Side</th><th>Outcome</th><th>Price</th><th>Shares</th><th>Cost</th><th>Strategy</th><th>Status</th><th>Reconcile</th></tr></thead>
+    <tbody id="tradesBody"><tr><td colspan="10" class="gray">No trades yet</td></tr></tbody>
+  </table>
+</div>
+
+<div id="status" class="mono">Last update: never</div>
+
+<script>
+function authHeaders() {
+  const t = localStorage.getItem('DASHBOARD_TOKEN');
+  return t ? { 'Authorization': 'Bearer ' + t } : {};
+}
+
+async function fetchState() {
+  try {
+    const resp = await fetch('/api/state', { credentials: 'include' });
+    if (resp.status === 401) { window.location.href = '/login'; return; }
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    updateUI(await resp.json());
+    document.getElementById('status').textContent = 'Last update: ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    document.getElementById('runStatus').textContent = 'Disconnected';
+    document.getElementById('runStatus').className = 'badge stop';
+  }
+}
+
+function renderAgents(detail) {
+  const el = document.getElementById('agentRoster');
+  if (!detail || !detail.length) {
+    el.innerHTML = '<p class="gray">No agent metadata</p>';
+    return;
+  }
+  el.innerHTML = detail.map(a => {
+    const on = !!a.enabled;
+    return `<div class="agent-card ${on ? '' : 'off'}">
+      <h3>${escHtml(a.title || a.id)} <span class="pill ${on ? 'pill-on' : 'pill-off'}">${on ? 'ON' : 'OFF'}</span></h3>
+      <div class="meta mono">id: ${escHtml(a.id)} · priority ${a.priority}</div>
+      <p>${escHtml(a.description || '')}</p>
+    </div>`;
+  }).join('');
+}
+
+function renderCats(categories) {
+  const el = document.getElementById('catPills');
+  if (!categories) { el.innerHTML = ''; return; }
+  const keys = Object.keys(categories).sort();
+  el.innerHTML = keys.map(k => {
+    const short = k.replace('ENABLE_', '').toLowerCase().replace(/_/g, ' ');
+    const on = categories[k];
+    return `<span class="cat-pill ${on ? 'on' : ''}">${escHtml(short)}</span>`;
+  }).join('');
+}
+
+function updateUI(d) {
+  const st = d.settings || {};
+  const ui = (st.ui_mode || 'both').toUpperCase();
+  document.getElementById('uiModeBadge').textContent = 'UI ' + ui;
+
+  const tag = document.getElementById('modeTag');
+  if (d.dry_run) { tag.textContent = 'DRY RUN'; tag.className = 'badge dry'; }
+  else { tag.textContent = 'LIVE'; tag.className = 'badge live'; }
+
+  const rs = document.getElementById('runStatus');
+  rs.textContent = d.running ? 'Loop running' : 'Loop stopped';
+  rs.className = 'badge ' + (d.running ? 'run' : 'stop');
+
+  document.getElementById('balance').textContent = '$' + (d.usdc_balance || 0).toFixed(2);
+  document.getElementById('portfolio').textContent = '$' + (d.portfolio_value || 0).toFixed(2);
+  const pnlEl = document.getElementById('pnl');
+  const pnl = d.total_pnl || 0;
+  pnlEl.textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
+  pnlEl.className = 'value mono ' + (pnl >= 0 ? '' : 'red');
+
+  document.getElementById('trades').textContent = d.trades_placed || 0;
+  document.getElementById('lastTrade').textContent = d.last_trade ? timeAgo(d.last_trade) : '—';
+  document.getElementById('scanned').textContent = d.markets_scanned || 0;
+  document.getElementById('lastScan').textContent = d.last_scan ? timeAgo(d.last_scan) : '—';
+  document.getElementById('betSize').textContent = '$' + (d.default_bet || 5).toFixed(0);
+  document.getElementById('betRange').textContent = '$' + (d.min_bet||1) + ' – $' + (d.max_bet||25);
+
+  renderAgents(d.agents_detail);
+  renderCats(st.categories);
+
+  const cat = st.categories || {};
+  const off = Object.keys(cat).filter(k => !cat[k]);
+  document.getElementById('openOrders').textContent = d.open_orders_count != null ? d.open_orders_count : (d.open_orders || []).length;
+  const ru = d.reconcile_updates_last;
+  document.getElementById('reconcileMeta').textContent = d.last_reconcile_at
+    ? ('Last: ' + timeAgo(d.last_reconcile_at) + (ru != null ? ' · +' + ru + ' rows' : ''))
+    : '—';
+
+  const ob = document.getElementById('openOrdersBody');
+  const oo = d.open_orders || [];
+  if (!oo.length) ob.innerHTML = '<tr><td colspan="6" class="gray">No working orders</td></tr>';
+  else ob.innerHTML = oo.map(o => `<tr>
+    <td class="mono gray">${escHtml((o.order_id||'').substring(0,18))}…</td>
+    <td class="mono gray">${escHtml((o.token_id||'').substring(0,14))}…</td>
+    <td>${escHtml(o.side||'—')}</td>
+    <td class="mono">${o.price != null ? Number(o.price).toFixed(4) : '—'}</td>
+    <td class="mono">${o.size_matched != null ? Number(o.size_matched).toFixed(2) : '—'} / ${o.original_size != null ? Number(o.original_size).toFixed(2) : '—'}</td>
+    <td>${escHtml(o.status||'—')}</td>
+  </tr>`).join('');
+
+  document.getElementById('agentsInfo').textContent = JSON.stringify({
+    cex_gate_crypto: st.cex_gate_crypto,
+    max_cex_dispersion_bps: st.max_cex_dispersion_bps,
+    reconcile_enabled: st.reconcile_enabled,
+    structured_log: st.structured_log,
+    categories_disabled: off,
+    agents_fired: d.agents_fired || [],
+    sample_intents: (d.last_intents || []).slice(0, 8),
+    cex_snapshot: d.cex_snapshot || {}
+  }, null, 2);
+
+  const errs = d.errors || [];
+  const errBox = document.getElementById('errorsBox');
+  if (errs.length) {
+    errBox.style.display = 'block';
+    document.getElementById('errorsList').innerHTML = errs.map(e => '<li>' + escHtml(e) + '</li>').join('');
+  } else errBox.style.display = 'none';
+
+  const pb = document.getElementById('positionsBody');
+  const pos = d.positions || [];
+  if (!pos.length) pb.innerHTML = '<tr><td colspan="7" class="gray">No open positions</td></tr>';
+  else pb.innerHTML = pos.map(p => `<tr>
+    <td>${escHtml((p.market||'').substring(0,48))}</td>
+    <td>${escHtml(p.outcome||'—')}</td>
+    <td class="mono">${(p.size||0).toFixed(2)}</td>
+    <td class="mono">$${(p.avg_price||0).toFixed(4)}</td>
+    <td class="mono">$${(p.current_price||0).toFixed(4)}</td>
+    <td class="mono">$${(p.value||0).toFixed(2)}</td>
+    <td class="mono ${(p.pnl||0)>=0?'green':'red'}">${(p.pnl||0)>=0?'+':''}$${(p.pnl||0).toFixed(2)}</td>
+  </tr>`).join('');
+
+  const tb = document.getElementById('tradesBody');
+  const trades = d.trade_history || [];
+  if (!trades.length) tb.innerHTML = '<tr><td colspan="10" class="gray">No trades yet</td></tr>';
+  else tb.innerHTML = trades.slice().reverse().map(t => `<tr>
+    <td class="gray">${timeAgo(t.timestamp)}</td>
+    <td>${escHtml((t.market||'').substring(0,36))}</td>
+    <td class="${t.side==='BUY'?'green':'red'}">${t.side}</td>
+    <td>${escHtml(t.outcome||'—')}</td>
+    <td class="mono">$${(t.price||0).toFixed(4)}</td>
+    <td class="mono">${(t.size||0).toFixed(2)}</td>
+    <td class="mono">$${(t.cost||0).toFixed(2)}</td>
+    <td class="yellow">${escHtml(t.strategy||'—')}</td>
+    <td>${escHtml(t.status||'—')}</td>
+    <td class="gray mono" style="font-size:0.72rem;">${escHtml(t.reconcile_note||'—')}</td>
+  </tr>`).join('');
+}
+
+function timeAgo(iso) {
+  if (!iso) return '—';
+  const t = new Date(iso).getTime();
+  const s = Math.floor((Date.now() - t) / 1000);
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s/60) + 'm ago';
+  if (s < 86400) return Math.floor(s/3600) + 'h ago';
+  return Math.floor(s/86400) + 'd ago';
+}
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s == null ? '' : String(s);
+  return d.innerHTML;
+}
+
+async function killBot() {
+  if (!confirm('Stop the trading loop?')) return;
+  await fetch('/api/kill', { method: 'POST', headers: { ...authHeaders() }, credentials: 'include' });
+  fetchState();
+}
+async function forceScan() {
+  document.getElementById('runStatus').textContent = 'Scanning…';
+  await fetch('/api/scan', { method: 'POST', headers: { ...authHeaders() }, credentials: 'include' });
+  fetchState();
+}
+async function forceReconcile() {
+  document.getElementById('runStatus').textContent = 'Reconciling…';
+  try {
+    const r = await fetch('/api/reconcile', { method: 'POST', headers: { ...authHeaders() }, credentials: 'include' });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) console.warn('reconcile', j);
+  } catch (e) { console.warn(e); }
+  fetchState();
+}
+
+fetchState();
+setInterval(fetchState, 5000);
+</script>
+</body>
+</html>

@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — Polymarket bot</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 0 auto; padding: 24px; background: #070a10; color: #e8edf5; line-height: 1.5; }
+    h1 { font-size: 1.2rem; }
+    h2 { font-size: 1rem; margin-top: 28px; color: #7a8aa0; }
+    a { color: #5cb8ff; }
+    textarea, input { width: 100%; box-sizing: border-box; padding: 10px; border-radius: 8px; border: 1px solid #243044; background: #151c26; color: #e8edf5; }
+    textarea { min-height: 220px; font-family: ui-monospace, monospace; font-size: 0.78rem; }
+    button { margin-top: 10px; padding: 10px 16px; border-radius: 8px; border: 1px solid #243044; background: #1a2433; color: #e8edf5; cursor: pointer; }
+    .ok { color: #3dff9c; }
+    .bad { color: #ff5c5c; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 12px; }
+    th, td { text-align: left; padding: 8px; border-bottom: 1px solid #1a2433; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 640px) { .row { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <h1>Admin panel</h1>
+  <p><a href="/">Dashboard</a> · <a href="#" id="logout">Logout</a></p>
+  <p id="rolewarn" class="bad" style="display:none;"></p>
+  <p id="msg"></p>
+
+  <div id="adminBody">
+
+  <h2>Users</h2>
+  <div class="row">
+    <div><label>New username</label><input id="n_un"></div>
+    <div><label>New password</label><input id="n_pw" type="password"></div>
+  </div>
+  <div class="row">
+    <div><label>Role</label>
+      <select id="n_role" style="width:100%;padding:10px;border-radius:8px;background:#151c26;color:#e8edf5;border:1px solid #243044;">
+        <option value="user">user</option>
+        <option value="admin">admin</option>
+      </select>
+    </div>
+    <div style="align-self:end"><button type="button" id="btn_user">Create user</button></div>
+  </div>
+  <table><thead><tr><th>ID</th><th>Username</th><th>Role</th><th>Active</th></tr></thead><tbody id="users"></tbody></table>
+
+  <h2>Bot settings (JSON merge)</h2>
+  <p style="font-size:0.8rem;color:#7a8aa0;">Keys match DB store (e.g. polymarket_private_key, dry_run, default_bet_usd). Private key is masked in GET — paste full key here to update.</p>
+  <textarea id="settings_json"></textarea>
+  <button type="button" id="btn_save">Save settings</button>
+  <button type="button" id="btn_reload">Apply to running bot</button>
+
+  <h2>Signals (articles / keywords)</h2>
+  <p style="font-size:0.8rem;color:#7a8aa0;">Keywords JSON e.g. <code>["trump","election"]</code>. Sentiment -1 bearish … +1 bullish. Optional image upload.</p>
+  <form id="sigf">
+    <label>Title</label><input name="title" required>
+    <label>Summary</label><input name="summary">
+    <label>Source URL</label><input name="source_url">
+    <label>Keywords JSON</label><input name="keywords" value="[]">
+    <label>Sentiment (-1 to 1)</label><input name="sentiment" type="number" step="0.05" value="0">
+    <label>Weight</label><input name="weight" type="number" step="0.1" value="1">
+    <label>Image</label><input name="image" type="file" accept="image/*">
+    <button type="submit">Add signal</button>
+  </form>
+  <table><thead><tr><th>ID</th><th>Title</th><th>Sent.</th><th>Keywords</th></tr></thead><tbody id="sigs"></tbody></table>
+
+  <h2>Wallet trade pull (read-only)</h2>
+  <p style="font-size:0.8rem;color:#7a8aa0;">Data API — same idea as collectmarkets2; paste a 0x wallet.</p>
+  <input id="wt_wallet" placeholder="0x…" class="mono" style="max-width:420px;">
+  <button type="button" id="btn_wt">Fetch</button>
+  <pre id="wt_out" class="mono gray" style="font-size:0.72rem;white-space:pre-wrap;max-height:240px;overflow:auto;background:#0a0e14;padding:12px;border-radius:8px;border:1px solid #243044;margin-top:10px;display:none;"></pre>
+
+  </div>
+
+<script>
+async function api(path, opt={}) {
+  const r = await fetch(path, { credentials: 'include', ...opt });
+  if (r.status === 401) { window.location.href = '/login'; throw new Error('auth'); }
+  return r;
+}
+function msg(t, ok) {
+  const el = document.getElementById('msg');
+  el.textContent = t;
+  el.className = ok ? 'ok' : 'bad';
+}
+async function load() {
+  try {
+    const me = await (await api('/api/me')).json();
+    if ((me.role || '').toLowerCase() !== 'admin') {
+      document.getElementById('adminBody').style.display = 'none';
+      document.getElementById('rolewarn').style.display = 'block';
+      document.getElementById('rolewarn').textContent = 'This page is for administrators only.';
+      return;
+    }
+    const u = await (await api('/api/admin/users')).json();
+    document.getElementById('users').innerHTML = u.map(x => `<tr><td>${x.id}</td><td>${x.username}</td><td>${x.role}</td><td>${x.is_active}</td></tr>`).join('');
+    const s = await (await api('/api/admin/settings')).json();
+    document.getElementById('settings_json').value = JSON.stringify(s.settings, null, 2);
+    const sig = await (await api('/api/admin/signals')).json();
+    document.getElementById('sigs').innerHTML = sig.map(x => `<tr><td>${x.id}</td><td>${escapeHtml(x.title)}</td><td>${x.sentiment}</td><td>${escapeHtml(JSON.stringify(x.keywords))}</td></tr>`).join('');
+  } catch (e) {
+    if (e.message !== 'auth') msg(String(e), false);
+  }
+}
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+document.getElementById('btn_user').onclick = async () => {
+  const body = { username: document.getElementById('n_un').value.trim(), password: document.getElementById('n_pw').value, role: document.getElementById('n_role').value };
+  const r = await api('/api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) { msg(await r.text(), false); return; }
+  msg('User created', true);
+  load();
+};
+document.getElementById('btn_save').onclick = async () => {
+  let obj;
+  try { obj = JSON.parse(document.getElementById('settings_json').value); } catch { msg('Invalid JSON', false); return; }
+  const r = await api('/api/admin/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings: obj }) });
+  if (!r.ok) { msg(await r.text(), false); return; }
+  msg('Settings saved to database', true);
+};
+document.getElementById('btn_reload').onclick = async () => {
+  const r = await api('/api/admin/reload-settings', { method: 'POST' });
+  if (!r.ok) { msg(await r.text(), false); return; }
+  msg('Running bot reloaded in-memory settings', true);
+};
+document.getElementById('sigf').onsubmit = async (ev) => {
+  ev.preventDefault();
+  const fd = new FormData(ev.target);
+  const r = await api('/api/admin/signals', { method: 'POST', body: fd });
+  if (!r.ok) { msg(await r.text(), false); return; }
+  msg('Signal added', true);
+  ev.target.reset();
+  load();
+};
+document.getElementById('btn_wt').onclick = async () => {
+  const w = document.getElementById('wt_wallet').value.trim();
+  if (!w) return;
+  const r = await api('/api/admin/wallet-trades?wallet=' + encodeURIComponent(w));
+  const j = await r.json();
+  document.getElementById('wt_out').style.display = 'block';
+  document.getElementById('wt_out').textContent = JSON.stringify(j, null, 2);
+};
+document.getElementById('logout').onclick = async (e) => {
+  e.preventDefault();
+  await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+  window.location.href = '/login';
+};
+load();
+</script>
+</body>
+</html>

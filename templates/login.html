@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign in — Polymarket bot</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 400px; margin: 48px auto; padding: 24px; background: #0a0e14; color: #e8edf5; }
+    h1 { font-size: 1.25rem; margin-bottom: 8px; }
+    p { color: #7a8aa0; font-size: 0.9rem; margin-bottom: 24px; }
+    label { display: block; font-size: 0.75rem; color: #7a8aa0; margin-bottom: 4px; }
+    input { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #243044; background: #151c26; color: #e8edf5; margin-bottom: 16px; box-sizing: border-box; }
+    button { width: 100%; padding: 12px; border-radius: 8px; border: none; background: #3dff9c; color: #070a10; font-weight: 600; cursor: pointer; }
+    .err { color: #ff5c5c; font-size: 0.85rem; margin-top: 12px; display: none; }
+  </style>
+</head>
+<body>
+  <h1>Polymarket bot</h1>
+  <p>Sign in with your account. Admins can open <a href="/admin" style="color:#5cb8ff">Admin panel</a>.</p>
+  <form id="f">
+    <label>Username</label>
+    <input name="username" id="u" autocomplete="username" required>
+    <label>Password</label>
+    <input name="password" type="password" id="p" autocomplete="current-password" required>
+    <button type="submit">Sign in</button>
+    <div class="err" id="e"></div>
+  </form>
+  <script>
+  document.getElementById('f').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const err = document.getElementById('e');
+    err.style.display = 'none';
+    const body = { username: document.getElementById('u').value.trim(), password: document.getElementById('p').value };
+    const r = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) { err.textContent = 'Invalid username or password'; err.style.display = 'block'; return; }
+    window.location.href = '/';
+  };
+  </script>
+</body>
+</html>

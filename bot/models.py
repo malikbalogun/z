@@ -1,0 +1,77 @@
+"""Shared datatypes for agents and orchestrator."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any, Optional
+
+from bot.categories import MarketCategory
+
+
+@dataclass
+class TradeIntent:
+    """Executable intent produced by an agent (before risk checks)."""
+
+    agent: str
+    priority: int  # higher = preferred when multiple fire
+    token_id: str
+    condition_id: str
+    question: str
+    outcome: str
+    side: str  # BUY / SELL
+    max_price: float  # worst acceptable limit for BUY (inclusive)
+    size_usd: float
+    category: MarketCategory
+    strategy: str
+    reason: str
+    # Mid / fair reference at signal time (for min-edge bps gate); optional.
+    reference_price: Optional[float] = None
+    # Two BUY legs share the same id; orchestrator executes both as one decision.
+    bundle_id: Optional[str] = None
+
+
+@dataclass
+class TradeRecord:
+    order_id: str
+    market_question: str
+    condition_id: str
+    token_id: str
+    side: str
+    price: float
+    size: float
+    cost_usd: float
+    status: str
+    timestamp: str
+    outcome: str
+    strategy: str
+    reconcile_note: Optional[str] = None
+
+
+@dataclass
+class BotState:
+    mode: str = "live"
+    running: bool = False
+    usdc_balance: float = 0.0
+    portfolio_value: float = 0.0
+    total_pnl: float = 0.0
+    positions: list[dict] = field(default_factory=list)
+    open_orders: list[dict] = field(default_factory=list)
+    trade_history: list[TradeRecord] = field(default_factory=list)
+    markets_scanned: int = 0
+    trades_placed: int = 0
+    trades_filled: int = 0
+    last_scan: Optional[str] = None
+    last_trade: Optional[str] = None
+    errors: list[str] = field(default_factory=list)
+    started_at: Optional[str] = None
+    # Diagnostics
+    cex_snapshot: dict[str, Any] = field(default_factory=dict)
+    last_intents: list[dict] = field(default_factory=list)
+    agents_fired: list[str] = field(default_factory=list)
+    last_reconcile_at: Optional[str] = None
+    reconcile_updates_last: int = 0
+
+
+def utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
