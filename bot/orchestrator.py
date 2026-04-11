@@ -560,6 +560,7 @@ class TradingBot:
             for i in intents[:30]
         ]
         self.state.agents_fired = list({i.agent for i in intents})
+        skipped: list[dict[str, Any]] = []
 
         cb_max = int(self.settings.circuit_breaker_max_fails or 0)
         skip_placements = cb_max > 0 and self.state.consecutive_exec_failures >= cb_max
@@ -612,10 +613,13 @@ class TradingBot:
                             agent=a.agent,
                             reason=f"bundle_gate:{ra}/{rb}",
                         )
+                        skipped.append({"agent": a.agent, "strategy": f"{a.strategy}+{b.strategy}", "question": a.question[:80], "reason": f"bundle_gate:{ra}/{rb}"})
                         continue
                     if not await self._orderbook_gate_passes(a):
+                        skipped.append({"agent": a.agent, "strategy": a.strategy, "question": a.question[:80], "reason": "orderbook_imbalance"})
                         continue
                     if not await self._orderbook_gate_passes(b):
+                        skipped.append({"agent": b.agent, "strategy": b.strategy, "question": b.question[:80], "reason": "orderbook_imbalance"})
                         continue
                     adv_ok, adv_r = await self._advanced_gates_ok(
                         [a, b],
@@ -634,6 +638,7 @@ class TradingBot:
                             agent=a.agent,
                             reason=adv_r,
                         )
+                        skipped.append({"agent": a.agent, "strategy": f"{a.strategy}+{b.strategy}", "question": a.question[:80], "reason": adv_r})
                         continue
                     need = a.size_usd + b.size_usd + reserve
                     if self.state.usdc_balance < need:
@@ -668,6 +673,7 @@ class TradingBot:
                 await self._apply_intent_multipliers(intent)
                 disp = self._dispersion_for_intent(intent, cex_map)
                 if not await self._orderbook_gate_passes(intent):
+                    skipped.append({"agent": intent.agent, "strategy": intent.strategy, "question": intent.question[:80], "reason": "orderbook_imbalance"})
                     continue
                 ok, reason = gate_intent(intent, self.settings, disp)
                 if not ok:
@@ -680,6 +686,7 @@ class TradingBot:
                         agent=intent.agent,
                         reason=reason,
                     )
+                    skipped.append({"agent": intent.agent, "strategy": intent.strategy, "question": intent.question[:80], "reason": reason})
                     continue
                 adv_ok, adv_r = await self._advanced_gates_ok(
                     [intent],
@@ -698,6 +705,7 @@ class TradingBot:
                         agent=intent.agent,
                         reason=adv_r,
                     )
+                    skipped.append({"agent": intent.agent, "strategy": intent.strategy, "question": intent.question[:80], "reason": adv_r})
                     continue
                 need = intent.size_usd + reserve
                 if self.state.usdc_balance < need:
@@ -716,6 +724,7 @@ class TradingBot:
                     category_extra[ccat] = category_extra.get(ccat, 0.0) + float(intent.size_usd)
                     placed += 1
 
+        self.state.last_skipped_intents = skipped[:30]
         self.state.errors = self.state.errors[-25:]
         log.info("——— cycle end placed=%s ———", placed)
         slog(
@@ -957,4 +966,5 @@ class TradingBot:
                 ),
                 2,
             ),
+            "last_skipped_intents": self.state.last_skipped_intents[:20],
         }

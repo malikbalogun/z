@@ -150,6 +150,16 @@ def default_kv_seed() -> dict[str, str]:
         # Phase 2: paper execution realism
         "paper_realism_enabled": "true",
         "paper_slippage_model_bps": "50",
+        # Telegram notifications
+        "telegram_bot_token": "",
+        "telegram_chat_id": "",
+        "telegram_enabled": "false",
+        "telegram_on_trade": "true",
+        "telegram_on_error": "true",
+        "telegram_on_cycle_summary": "false",
+        "telegram_on_balance_change": "false",
+        "telegram_daily_report": "false",
+        "telegram_daily_report_hour": "9",
     }
     for ck in cats:
         out[ck] = "true"
@@ -272,6 +282,17 @@ class Settings:
     # Phase 2: paper execution realism
     paper_realism_enabled: bool = True
     paper_slippage_model_bps: float = 50.0
+
+    # Telegram notifications
+    telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
+    telegram_enabled: bool = False
+    telegram_on_trade: bool = True
+    telegram_on_error: bool = True
+    telegram_on_cycle_summary: bool = False
+    telegram_on_balance_change: bool = False
+    telegram_daily_report: bool = False
+    telegram_daily_report_hour: int = 9
 
     @classmethod
     def from_kv(cls, kv: dict[str, str], *, merge_os_environ: bool = False) -> Settings:
@@ -456,6 +477,15 @@ class Settings:
             follower_latency_ms=_f(g("follower_latency_ms", "500"), 500.0),
             paper_realism_enabled=_b(g("paper_realism_enabled", "true"), True),
             paper_slippage_model_bps=_f(g("paper_slippage_model_bps", "50"), 50.0),
+            telegram_bot_token=g("telegram_bot_token", ""),
+            telegram_chat_id=g("telegram_chat_id", ""),
+            telegram_enabled=_b(g("telegram_enabled", "false"), False),
+            telegram_on_trade=_b(g("telegram_on_trade", "true"), True),
+            telegram_on_error=_b(g("telegram_on_error", "true"), True),
+            telegram_on_cycle_summary=_b(g("telegram_on_cycle_summary", "false"), False),
+            telegram_on_balance_change=_b(g("telegram_on_balance_change", "false"), False),
+            telegram_daily_report=_b(g("telegram_daily_report", "false"), False),
+            telegram_daily_report_hour=_i(g("telegram_daily_report_hour", "9"), 9),
         )
 
     @classmethod

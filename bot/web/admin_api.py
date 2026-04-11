@@ -206,6 +206,263 @@ def admin_import_settings(
     return {"ok": True, "updated": len(normalized)}
 
 
+class ResetKeysBody(BaseModel):
+    keys: list[str]
+
+
+@router.post("/api/admin/settings/reset")
+def admin_reset_settings(
+    body: ResetKeysBody,
+    _: Annotated[User, Depends(require_admin)],
+):
+    """Reset specified keys to their defaults."""
+    defaults = default_kv_seed()
+    to_write: dict[str, str] = {}
+    unknown: list[str] = []
+    for k in body.keys:
+        if k in defaults:
+            to_write[k] = defaults[k]
+        else:
+            unknown.append(k)
+    if to_write:
+        upsert_many_kv(to_write)
+    return {"ok": True, "reset": list(to_write.keys()), "unknown": unknown}
+
+
+@router.get("/api/admin/settings/meta")
+def admin_settings_meta(_: Annotated[User, Depends(require_admin)]):
+    """Field metadata for settings UI: groups, descriptions, types, defaults."""
+    return {"ok": True, "groups": _settings_field_groups()}
+
+
+def _settings_field_groups() -> list[dict]:
+    """Settings field metadata grouped into sections for the UI."""
+    return [
+        {
+            "id": "core",
+            "title": "Core Bot Settings",
+            "description": "Fundamental bot behavior: mode, timing, and bet sizing.",
+            "level": "basic",
+            "fields": [
+                {"key": "dry_run", "label": "Dry Run Mode", "type": "bool", "help": "When enabled, the bot simulates trades without placing real orders. Recommended for testing."},
+                {"key": "trading_paused", "label": "Trading Paused", "type": "bool", "help": "Temporarily pause all trading activity. The bot continues scanning but won't place orders."},
+                {"key": "scan_interval_seconds", "label": "Scan Interval (seconds)", "type": "int", "help": "How often the bot scans for new trading opportunities. Lower = more frequent scans (5-300)."},
+                {"key": "default_bet_usd", "label": "Default Bet Size (USD)", "type": "float", "help": "The standard amount in USD to wager per trade."},
+                {"key": "min_bet_usd", "label": "Minimum Bet (USD)", "type": "float", "help": "The smallest trade size the bot will place."},
+                {"key": "max_bet_usd", "label": "Maximum Bet (USD)", "type": "float", "help": "The largest trade size the bot will place."},
+                {"key": "max_trades_per_cycle", "label": "Max Trades Per Cycle", "type": "int", "help": "How many trades the bot can execute in a single scan cycle (1-50)."},
+                {"key": "balance_buffer_usd", "label": "Balance Buffer (USD)", "type": "float", "help": "Reserve this amount of USDC and don't trade with it. Acts as a safety margin."},
+            ],
+        },
+        {
+            "id": "agents",
+            "title": "Trading Agents",
+            "description": "Enable or disable individual trading strategy agents.",
+            "level": "basic",
+            "fields": [
+                {"key": "agent_value", "label": "Value Edge Agent", "type": "bool", "help": "Finds mispriced YES/NO markets by comparing outcome prices to fair-value thresholds."},
+                {"key": "agent_copy", "label": "Copy Signal Agent", "type": "bool", "help": "Mirrors trades from watched wallets. Requires wallet addresses to be configured."},
+                {"key": "agent_latency", "label": "Latency Arb Agent", "type": "bool", "help": "Detects stale prices that lag behind CEX reference data."},
+                {"key": "agent_bundle", "label": "Bundle Arb Agent", "type": "bool", "help": "Buys both YES and NO when their combined cost < $1 (arbitrage opportunity)."},
+                {"key": "agent_zscore", "label": "Z-Score Agent", "type": "bool", "help": "Trades statistical outliers based on price z-score over a rolling window."},
+            ],
+        },
+        {
+            "id": "value_edge",
+            "title": "Value Edge Parameters",
+            "description": "Thresholds for the value-edge agent's buy decisions.",
+            "level": "advanced",
+            "fields": [
+                {"key": "strategy_profile", "label": "Strategy Profile", "type": "text", "help": "Preset parameter profile: 'balanced', 'aggressive', or 'conservative'."},
+                {"key": "value_yes_low", "label": "YES Buy Low", "type": "float", "help": "Minimum YES price to consider buying (e.g. 0.20 = 20 cents)."},
+                {"key": "value_yes_high", "label": "YES Buy High", "type": "float", "help": "Maximum YES price to consider buying."},
+                {"key": "value_no_yes_min", "label": "NO Trigger: YES Must Be Above", "type": "float", "help": "For BUY NO, the YES price must be at least this high."},
+                {"key": "value_no_no_max", "label": "NO Max Price", "type": "float", "help": "Maximum NO price to buy at."},
+                {"key": "value_liq_floor_usd", "label": "Liquidity Floor (USD)", "type": "float", "help": "Minimum liquidity in the order book to consider trading."},
+                {"key": "min_edge_bps", "label": "Minimum Edge (bps)", "type": "int", "help": "Minimum price edge in basis points between reference and limit price. 0 = disabled."},
+                {"key": "signals_enabled", "label": "Research Signals", "type": "bool", "help": "Use uploaded research signals to bias trade sizing."},
+                {"key": "pnl_sizing_enabled", "label": "PnL-Aware Sizing", "type": "bool", "help": "Adjust bet sizes based on recent trading performance."},
+                {"key": "pnl_sizing_window", "label": "PnL Sizing Window (days)", "type": "int", "help": "Lookback window for PnL-aware sizing."},
+            ],
+        },
+        {
+            "id": "latency_bundle_zscore",
+            "title": "Latency / Bundle / Z-Score Parameters",
+            "description": "Agent-specific tuning for latency arb, bundle arb, and z-score agents.",
+            "level": "advanced",
+            "fields": [
+                {"key": "latency_min_dislocation_bps", "label": "Latency Min Dislocation (bps)", "type": "float", "help": "Minimum CEX-vs-Poly dislocation in basis points to trigger a latency arb trade."},
+                {"key": "bundle_max_pair_cost", "label": "Bundle Max Pair Cost", "type": "float", "help": "Maximum combined cost of YES+NO pair (< $1.00 means profit). E.g. 0.994."},
+                {"key": "bundle_min_liquidity_usd", "label": "Bundle Min Liquidity (USD)", "type": "float", "help": "Minimum liquidity required for bundle arb trades."},
+                {"key": "zscore_window", "label": "Z-Score Window (hours)", "type": "int", "help": "Rolling window for z-score calculation."},
+                {"key": "zscore_entry_abs", "label": "Z-Score Entry Threshold", "type": "float", "help": "Absolute z-score value required to trigger an entry. Higher = fewer trades."},
+                {"key": "zscore_min_samples", "label": "Z-Score Min Samples", "type": "int", "help": "Minimum data points needed before z-score trading activates."},
+            ],
+        },
+        {
+            "id": "risk",
+            "title": "Risk Controls",
+            "description": "Gate checks that filter out risky or unwanted trades before execution.",
+            "level": "basic",
+            "fields": [
+                {"key": "cex_gate_crypto", "label": "CEX Gate for Crypto", "type": "bool", "help": "Require CEX price validation for crypto markets before trading."},
+                {"key": "cex_require_dispersion", "label": "Require Dispersion Data", "type": "bool", "help": "Block crypto trades when CEX dispersion data is unavailable."},
+                {"key": "max_cex_dispersion_bps", "label": "Max CEX Dispersion (bps)", "type": "float", "help": "Maximum allowed dispersion between CEX price sources."},
+                {"key": "orderbook_gate_enabled", "label": "Order Book Gate", "type": "bool", "help": "Check order book depth/imbalance before placing BUY orders."},
+                {"key": "orderbook_min_bid_share", "label": "Min Bid Share", "type": "float", "help": "Minimum bid-side share of the order book (0.0 to 1.0)."},
+                {"key": "spread_gate_enabled", "label": "Spread Gate", "type": "bool", "help": "Reject trades where the bid-ask spread is too wide."},
+                {"key": "max_spread_bps", "label": "Max Spread (bps)", "type": "float", "help": "Maximum allowable bid-ask spread in basis points."},
+                {"key": "resolution_gate_enabled", "label": "Resolution Time Gate", "type": "bool", "help": "Skip markets resolving too soon (risk of last-minute manipulation)."},
+                {"key": "min_hours_to_resolution", "label": "Min Hours to Resolution", "type": "float", "help": "Minimum hours until market resolution to allow trading."},
+                {"key": "circuit_breaker_max_fails", "label": "Circuit Breaker (max fails)", "type": "int", "help": "Pause all trading after this many consecutive execution failures. 0 = disabled."},
+            ],
+        },
+        {
+            "id": "exposure",
+            "title": "Exposure Limits",
+            "description": "Position and notional caps to limit overall risk.",
+            "level": "advanced",
+            "fields": [
+                {"key": "max_condition_exposure_usd", "label": "Max Per-Market Exposure (USD)", "type": "float", "help": "Maximum USD exposure to any single market condition. 0 = unlimited."},
+                {"key": "max_category_exposure_usd", "label": "Max Per-Category Exposure (USD)", "type": "float", "help": "Maximum USD exposure to any single category. 0 = unlimited."},
+                {"key": "category_exposure_caps", "label": "Per-Category Caps (JSON)", "type": "json", "help": "Override per-category exposure limits. E.g. {\"politics\": 100, \"crypto_short\": 50}"},
+                {"key": "max_daily_notional_usd", "label": "Max Daily Notional (USD)", "type": "float", "help": "Total USD notional traded per rolling window. 0 = unlimited."},
+                {"key": "daily_notional_window_hours", "label": "Daily Window (hours)", "type": "float", "help": "Rolling window for daily notional limit."},
+            ],
+        },
+        {
+            "id": "execution",
+            "title": "Execution Behavior",
+            "description": "How orders are placed and monitored on the CLOB.",
+            "level": "advanced",
+            "fields": [
+                {"key": "strict_execution", "label": "Strict Limit Orders", "type": "bool", "help": "Use strict limit (GTD) orders. When off, may use IOC or market fills."},
+                {"key": "allow_market_fallback", "label": "Market FOK Fallback", "type": "bool", "help": "If a limit order doesn't fill, attempt a fill-or-kill market order."},
+                {"key": "order_ttl_seconds", "label": "Order TTL (seconds)", "type": "int", "help": "How long a limit order stays live before expiry."},
+                {"key": "order_poll_seconds", "label": "Order Poll Interval (seconds)", "type": "float", "help": "How frequently to check order fill status."},
+                {"key": "reconcile_enabled", "label": "Auto-Reconcile", "type": "bool", "help": "Automatically reconcile trade records with CLOB each cycle."},
+                {"key": "reconcile_history_depth", "label": "Reconcile Depth", "type": "int", "help": "How many recent trades to check during reconciliation."},
+                {"key": "reconcile_poll_sleep_s", "label": "Reconcile Poll Sleep (s)", "type": "float", "help": "Delay between CLOB API calls during reconciliation."},
+            ],
+        },
+        {
+            "id": "categories",
+            "title": "Market Categories",
+            "description": "Toggle which market categories the bot is allowed to trade.",
+            "level": "basic",
+            "fields": [
+                {"key": "ENABLE_CRYPTO_SHORT", "label": "Crypto Short-Term", "type": "bool", "help": "Short-term crypto price prediction markets."},
+                {"key": "ENABLE_CRYPTO_OTHER", "label": "Crypto Other", "type": "bool", "help": "Other crypto-related markets."},
+                {"key": "ENABLE_SPORTS", "label": "Sports", "type": "bool", "help": "Sports outcome prediction markets."},
+                {"key": "ENABLE_POLITICS", "label": "Politics", "type": "bool", "help": "Political election and policy markets."},
+                {"key": "ENABLE_MACRO", "label": "Macro / Economics", "type": "bool", "help": "Macroeconomic indicator and rate markets."},
+                {"key": "ENABLE_WEATHER", "label": "Weather", "type": "bool", "help": "Weather and climate event markets."},
+                {"key": "ENABLE_SCIENCE_TECH", "label": "Science & Tech", "type": "bool", "help": "Science, tech, and innovation markets."},
+                {"key": "ENABLE_ENTERTAINMENT", "label": "Entertainment", "type": "bool", "help": "Entertainment, awards, and cultural markets."},
+                {"key": "ENABLE_GEOPOLITICS", "label": "Geopolitics", "type": "bool", "help": "Geopolitical event markets."},
+                {"key": "ENABLE_OTHER", "label": "Other", "type": "bool", "help": "Uncategorized markets."},
+            ],
+        },
+        {
+            "id": "copy_trading",
+            "title": "Copy Trading",
+            "description": "Configure which wallets to copy-trade and apply filters.",
+            "level": "basic",
+            "fields": [
+                {"key": "copy_watch_wallets", "label": "Watch Wallets", "type": "list", "help": "Polygon wallet addresses to copy trades from (one per line)."},
+                {"key": "copy_poll_seconds", "label": "Poll Interval (seconds)", "type": "int", "help": "How often to check watched wallets for new trades."},
+                {"key": "copy_min_usd", "label": "Min Trade Size (USD)", "type": "float", "help": "Only copy trades at least this size. 0 = no minimum."},
+                {"key": "copy_max_usd", "label": "Max Trade Size (USD)", "type": "float", "help": "Cap copied trade size. 0 = no cap."},
+                {"key": "copy_min_price", "label": "Min Price", "type": "float", "help": "Only copy when the token price is at least this (0.0-1.0)."},
+                {"key": "copy_max_price", "label": "Max Price", "type": "float", "help": "Only copy when the token price is at most this (0.0-1.0)."},
+                {"key": "copy_price_buffer_bps", "label": "Price Buffer (bps)", "type": "float", "help": "Extra slippage buffer in bps added to the copied trade's price."},
+                {"key": "copy_allow_unknown_outcome", "label": "Allow Unknown Outcomes", "type": "bool", "help": "Copy trades even when the outcome label cannot be determined."},
+                {"key": "copy_allowed_categories", "label": "Allowed Categories", "type": "list", "help": "Only copy trades in these categories (comma-separated). Empty = all."},
+                {"key": "copy_allowed_outcomes", "label": "Allowed Outcomes", "type": "list", "help": "Only copy these outcomes: yes, no, unknown. Empty = all."},
+                {"key": "copy_required_keywords", "label": "Required Keywords", "type": "list", "help": "Only copy trades whose market title contains one of these keywords."},
+                {"key": "copy_blocked_keywords", "label": "Blocked Keywords", "type": "list", "help": "Skip trades whose market title contains any of these keywords."},
+                {"key": "copy_min_wallet_score", "label": "Min Wallet Score", "type": "float", "help": "Minimum historical performance score for the source wallet (0.0-1.0)."},
+                {"key": "copy_wallet_score_overrides", "label": "Wallet Score Overrides (JSON)", "type": "json", "help": "Override scores for specific wallets. E.g. {\"0xabc...\": 0.15}"},
+            ],
+        },
+        {
+            "id": "telegram",
+            "title": "Telegram Notifications",
+            "description": "Send trade alerts, error reports, and daily summaries to a Telegram chat.",
+            "level": "basic",
+            "fields": [
+                {"key": "telegram_enabled", "label": "Enable Telegram", "type": "bool", "help": "Master switch for Telegram notifications."},
+                {"key": "telegram_bot_token", "label": "Bot Token", "type": "secret", "help": "Telegram Bot API token from @BotFather (e.g. 123456:ABC-DEF...)."},
+                {"key": "telegram_chat_id", "label": "Chat ID", "type": "text", "help": "Telegram chat/group ID to send messages to. Use @userinfobot to find yours."},
+                {"key": "telegram_on_trade", "label": "Notify on Trade", "type": "bool", "help": "Send a message whenever a trade is placed."},
+                {"key": "telegram_on_error", "label": "Notify on Error", "type": "bool", "help": "Send a message when the bot encounters errors."},
+                {"key": "telegram_on_cycle_summary", "label": "Cycle Summary", "type": "bool", "help": "Send a brief summary after each scan cycle."},
+                {"key": "telegram_on_balance_change", "label": "Balance Change Alerts", "type": "bool", "help": "Notify when your USDC balance changes significantly."},
+                {"key": "telegram_daily_report", "label": "Daily Report", "type": "bool", "help": "Send a daily performance report."},
+                {"key": "telegram_daily_report_hour", "label": "Report Hour (UTC)", "type": "int", "help": "Hour of day (0-23 UTC) to send the daily report."},
+            ],
+        },
+        {
+            "id": "ev_gate",
+            "title": "EV-Aware Trade Gating",
+            "description": "Expected-value checks that estimate whether a trade is profitable after fees and slippage.",
+            "level": "advanced",
+            "fields": [
+                {"key": "ev_gate_enabled", "label": "Enable EV Gate", "type": "bool", "help": "Require trades to pass an expected-value profitability check."},
+                {"key": "ev_min_edge_bps", "label": "Min Edge (bps)", "type": "float", "help": "Minimum expected edge after fees, in basis points."},
+                {"key": "ev_min_profit_usd", "label": "Min Expected Profit (USD)", "type": "float", "help": "Minimum expected dollar profit per trade."},
+                {"key": "ev_slippage_estimate_bps", "label": "Estimated Slippage (bps)", "type": "float", "help": "Assumed slippage for EV calculation."},
+                {"key": "ev_fee_bps", "label": "Fee Estimate (bps)", "type": "float", "help": "Trading fee assumption for EV math."},
+                {"key": "ev_time_discount_rate", "label": "Time Discount Rate", "type": "float", "help": "Annualized discount rate for time-value of capital locked in a position."},
+                {"key": "ev_max_hours_to_resolution", "label": "Max Hours to Resolution", "type": "float", "help": "Skip markets resolving later than this. 0 = no limit."},
+            ],
+        },
+        {
+            "id": "paper_realism",
+            "title": "Paper Trading Realism",
+            "description": "Make dry-run simulations more realistic by modeling slippage.",
+            "level": "advanced",
+            "fields": [
+                {"key": "paper_realism_enabled", "label": "Enable Paper Realism", "type": "bool", "help": "Add simulated slippage and fill uncertainty to dry-run trades."},
+                {"key": "paper_slippage_model_bps", "label": "Simulated Slippage (bps)", "type": "float", "help": "Basis points of slippage applied to paper trades."},
+                {"key": "max_slippage_bps", "label": "Max Slippage (bps)", "type": "float", "help": "Maximum allowable slippage. 0 = unlimited."},
+                {"key": "min_survivability", "label": "Min Survivability", "type": "float", "help": "Minimum fill probability for a trade to be considered viable (0.0-1.0)."},
+                {"key": "post_entry_drift_bps", "label": "Post-Entry Drift (bps)", "type": "float", "help": "Expected adverse price movement after entry."},
+                {"key": "follower_latency_ms", "label": "Follower Latency (ms)", "type": "float", "help": "Simulated delay for copy-trade execution."},
+            ],
+        },
+        {
+            "id": "infrastructure",
+            "title": "Infrastructure & Display",
+            "description": "Server, logging, and dashboard display settings.",
+            "level": "advanced",
+            "fields": [
+                {"key": "ui_mode", "label": "UI Mode", "type": "select", "options": ["both", "dashboard", "terminal"], "help": "Which interfaces to enable: both, dashboard only, or terminal only."},
+                {"key": "host", "label": "Bind Host", "type": "text", "help": "IP address to bind the web server to. Use 0.0.0.0 for all interfaces."},
+                {"key": "port", "label": "Port", "type": "int", "help": "TCP port for the web dashboard (1-65535)."},
+                {"key": "structured_log", "label": "Structured Logging", "type": "bool", "help": "Emit machine-readable SLOG lines for each event."},
+                {"key": "ws_allow_anonymous", "label": "Allow Anonymous WebSocket", "type": "bool", "help": "Let unauthenticated clients connect to the /ws stream."},
+                {"key": "open_orders_display_limit", "label": "Open Orders Display Limit", "type": "int", "help": "Max number of open orders shown on the dashboard."},
+                {"key": "min_clob_liquidity_usd", "label": "Min CLOB Liquidity (USD)", "type": "float", "help": "Minimum order book liquidity to consider a market tradeable."},
+                {"key": "min_gamma_volume", "label": "Min Gamma Volume", "type": "float", "help": "Minimum trading volume from Gamma API to consider a market."},
+                {"key": "wallet_score_decay_half_life_hours", "label": "Wallet Score Decay Half-Life (hours)", "type": "float", "help": "How quickly old wallet trade data loses weight in scoring."},
+            ],
+        },
+        {
+            "id": "credentials",
+            "title": "Exchange Credentials",
+            "description": "Polymarket wallet keys and signature settings. Handle with care.",
+            "level": "basic",
+            "fields": [
+                {"key": "polymarket_private_key", "label": "Private Key", "type": "secret", "help": "Your Polymarket wallet private key. Leave blank to keep current. Masked on read."},
+                {"key": "wallet_address", "label": "Wallet Address", "type": "text", "help": "Your Polygon wallet address (0x...)."},
+                {"key": "polymarket_signature_type", "label": "Signature Type", "type": "select", "options": ["0", "1"], "help": "Polymarket signature type. Usually 0 for EOA wallets."},
+                {"key": "dashboard_secret", "label": "Dashboard Secret", "type": "secret", "help": "Optional bearer token for API authentication (legacy)."},
+            ],
+        },
+    ]
+
+
 @router.get("/api/admin/signals")
 def admin_list_signals(_: Annotated[User, Depends(require_admin)], db: Annotated[Session, Depends(get_db)]):
     rows = db.execute(select(ArticleSignal).order_by(ArticleSignal.id.desc()).limit(200)).scalars().all()

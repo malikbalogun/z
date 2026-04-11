@@ -75,6 +75,8 @@ class BotState:
     reconcile_updates_last: int = 0
     # Consecutive failed _execute_intent (create/post/critical path); circuit breaker reads this.
     consecutive_exec_failures: int = 0
+    # Rejected/skipped intents from last cycle (for dashboard visibility).
+    last_skipped_intents: list[dict] = field(default_factory=list)
 
 
 def utc_now_iso() -> str:
