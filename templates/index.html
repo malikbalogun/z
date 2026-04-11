@@ -241,8 +241,12 @@ code { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; background: 
 </div>
 
 <div class="section">
-  <h2>Last cycle — intents sample</h2>
-  <pre id="agentsInfo" class="mono gray" style="font-size:0.72rem;white-space:pre-wrap;max-height:200px;overflow:auto;background:#0a0e14;padding:12px;border-radius:8px;border:1px solid var(--border);">—</pre>
+  <h2>Last cycle — intents &amp; decisions</h2>
+  <div id="cycleDecisions" style="margin-bottom:12px;"></div>
+  <details style="margin-top:6px;">
+    <summary style="font-size:0.72rem;color:var(--muted);cursor:pointer;">Raw cycle data (JSON)</summary>
+    <pre id="agentsInfo" class="mono gray" style="font-size:0.72rem;white-space:pre-wrap;max-height:200px;overflow:auto;background:#0a0e14;padding:12px;border-radius:8px;border:1px solid var(--border);margin-top:6px;">—</pre>
+  </details>
   <p class="hint">Sign in via <a href="/login">/login</a>. Admins can run scan / reconcile / stop; use <code>/admin</code> for keys and bot settings (stored in DB).</p>
 </div>
 
@@ -379,6 +383,8 @@ function updateUI(d) {
     cex_snapshot: d.cex_snapshot || {}
   }, null, 2);
 
+  renderCycleDecisions(d);
+
   const errs = d.errors || [];
   const errBox = document.getElementById('errorsBox');
   if (errs.length) {
@@ -449,6 +455,52 @@ async function forceReconcile() {
     if (!r.ok) console.warn('reconcile', j);
   } catch (e) { console.warn(e); }
   fetchState();
+}
+
+function renderCycleDecisions(d) {
+  const el = document.getElementById('cycleDecisions');
+  const intents = (d.last_intents || []).slice(0, 12);
+  const skipped = (d.last_skipped_intents || []).slice(0, 12);
+  const fired = d.agents_fired || [];
+
+  if (!intents.length && !skipped.length) {
+    el.innerHTML = '<p style="font-size:0.78rem;color:var(--muted);">No intents generated this cycle' +
+      (fired.length ? ' (agents: ' + fired.map(a => escHtml(a)).join(', ') + ')' : '') + '</p>';
+    return;
+  }
+
+  let html = '';
+
+  if (fired.length) {
+    html += '<div style="margin-bottom:8px;font-size:0.72rem;color:var(--muted);">Agents fired: ' +
+      fired.map(a => '<span style="display:inline-block;padding:2px 7px;border-radius:5px;border:1px solid #243044;background:#151c26;margin-right:4px;font-weight:600;color:#e8edf5;">' + escHtml(a) + '</span>').join('') + '</div>';
+  }
+
+  if (intents.length) {
+    html += '<div style="font-size:0.72rem;font-weight:600;color:var(--accent);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.06em;">Proposed Intents (' + intents.length + ')</div>';
+    html += intents.map(it => {
+      return '<div style="display:flex;align-items:center;gap:8px;padding:5px 10px;margin-bottom:3px;border-radius:6px;background:rgba(61,255,156,0.04);border:1px solid rgba(61,255,156,0.12);font-size:0.78rem;">' +
+        '<span style="color:var(--accent);font-weight:700;font-size:0.72rem;min-width:60px;">' + escHtml(it.agent) + '</span>' +
+        '<span style="color:var(--text);flex:1;">' + escHtml(it.question || it.strategy) + '</span>' +
+        '<span class="mono" style="color:var(--muted);font-size:0.72rem;">$' + (it.usd||0).toFixed(2) + ' @ ' + (it.max_price||0).toFixed(4) + '</span>' +
+        '<span style="font-size:0.65rem;padding:2px 6px;border-radius:4px;background:rgba(61,255,156,0.15);color:var(--accent);">' + escHtml(it.category) + '</span>' +
+        '</div>';
+    }).join('');
+  }
+
+  if (skipped.length) {
+    html += '<div style="font-size:0.72rem;font-weight:600;color:var(--danger);margin:10px 0 6px;text-transform:uppercase;letter-spacing:0.06em;">Rejected / Skipped (' + skipped.length + ')</div>';
+    html += skipped.map(s => {
+      return '<div style="display:flex;align-items:center;gap:8px;padding:5px 10px;margin-bottom:3px;border-radius:6px;background:rgba(255,92,92,0.04);border:1px solid rgba(255,92,92,0.12);font-size:0.78rem;">' +
+        '<span style="color:var(--danger);font-weight:700;font-size:0.85rem;min-width:16px;">&#10007;</span>' +
+        '<span style="color:var(--danger);font-weight:600;font-size:0.72rem;min-width:60px;">' + escHtml(s.agent) + '</span>' +
+        '<span style="color:var(--text);flex:1;">' + escHtml(s.question || s.strategy) + '</span>' +
+        '<span style="font-size:0.72rem;padding:2px 8px;border-radius:4px;background:rgba(255,92,92,0.12);color:var(--danger);font-weight:500;white-space:nowrap;">' + escHtml(s.reason) + '</span>' +
+        '</div>';
+    }).join('');
+  }
+
+  el.innerHTML = html;
 }
 
 fetchState();

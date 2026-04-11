@@ -40,6 +40,15 @@ BOOL_KEYS = {
     "ENABLE_ENTERTAINMENT",
     "ENABLE_GEOPOLITICS",
     "ENABLE_OTHER",
+    "telegram_enabled",
+    "telegram_on_trade",
+    "telegram_on_error",
+    "telegram_on_cycle_summary",
+    "telegram_on_balance_change",
+    "telegram_daily_report",
+    # Phase 2 booleans
+    "paper_realism_enabled",
+    "ev_gate_enabled",
 }
 
 INT_RANGES: dict[str, tuple[int, int | None]] = {
@@ -91,7 +100,29 @@ FLOAT_RANGES: dict[str, tuple[float, float | None]] = {
     "max_category_exposure_usd": (0.0, None),
 }
 
-TEXT_KEYS = {"host", "dashboard_secret", "wallet_address", "strategy_profile", "ui_mode", "polymarket_private_key"}
+INT_RANGES_EXTRA: dict[str, tuple[int, int | None]] = {
+    "telegram_daily_report_hour": (0, 23),
+}
+INT_RANGES.update(INT_RANGES_EXTRA)
+
+FLOAT_RANGES_EXTRA: dict[str, tuple[float, float | None]] = {
+    "reconcile_poll_sleep_s": (0.01, 10.0),
+    "wallet_score_decay_half_life_hours": (1.0, None),
+    "ev_min_edge_bps": (0.0, None),
+    "ev_min_profit_usd": (0.0, None),
+    "ev_slippage_estimate_bps": (0.0, None),
+    "ev_fee_bps": (0.0, None),
+    "ev_time_discount_rate": (0.0, None),
+    "ev_max_hours_to_resolution": (0.0, None),
+    "max_slippage_bps": (0.0, None),
+    "min_survivability": (0.0, 1.0),
+    "post_entry_drift_bps": (0.0, None),
+    "follower_latency_ms": (0.0, None),
+    "paper_slippage_model_bps": (0.0, None),
+}
+FLOAT_RANGES.update(FLOAT_RANGES_EXTRA)
+
+TEXT_KEYS = {"host", "dashboard_secret", "wallet_address", "strategy_profile", "ui_mode", "polymarket_private_key", "telegram_bot_token", "telegram_chat_id"}
 LIST_KEYS = {
     "copy_watch_wallets",
     "copy_allowed_categories",
