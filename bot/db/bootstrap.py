@@ -10,6 +10,16 @@ import bcrypt
 
 from bot.config_file import load_config
 from bot.db.models import Base, BotSetting, User, configure_engine, session_scope
+from bot.phase1.models import (  # noqa: F401 — import so Base.metadata sees Phase 1 tables
+    P1CollisionLock,
+    P1Market,
+    P1MarketClassification,
+    P1PaperTrade,
+    P1RejectionLog,
+    P1TradeCandidate,
+    P1WalletEvent,
+    P1WalletProfile,
+)
 from bot.settings import default_kv_seed
 
 log = logging.getLogger("polymarket.db.bootstrap")

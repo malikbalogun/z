@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from bot.auth_session import safe_parse
 from bot.config_file import load_config, project_root
 from bot.web.admin_api import router as admin_router
+from bot.phase1.api import router as p1_router
 from bot.web.deps import get_current_user, require_admin
 from bot.db.models import User
 
@@ -23,6 +24,7 @@ logger = logging.getLogger("polymarket.server")
 
 app = FastAPI(title="Polymarket Trading Bot", version="4.0.0")
 app.include_router(admin_router)
+app.include_router(p1_router)
 
 trader = None
 
