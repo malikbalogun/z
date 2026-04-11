@@ -16,6 +16,33 @@ from bot.clob_utils import is_filled_status, is_open_status, is_terminal_status,
 log = logging.getLogger("polymarket.execution")
 
 
+def _simulate_paper_fill(
+    *,
+    token_id: str,
+    side: str,
+    price: float,
+    size: float,
+) -> str:
+    """
+    Phase 2: realistic paper fill simulation instead of always returning "dry_run".
+    Returns a status note similar to live execution.
+    """
+    try:
+        from bot.paper_realism import simulate_paper_fill
+        result = simulate_paper_fill(
+            limit_price=price,
+            observed_price=price * 0.97,
+            size_usd=price * size,
+            slippage_model_bps=50.0,
+            latency_ms=500.0,
+        )
+        if result.filled:
+            return f"dry_run:paper_filled@{result.fill_price:.4f}_slip={result.slippage_bps:.0f}bps"
+        return f"dry_run:paper_miss:{result.reason}"
+    except Exception:
+        return "dry_run"
+
+
 def _extract_post_order_id(resp: Any) -> Optional[str]:
     if not isinstance(resp, dict):
         return None
@@ -72,13 +99,21 @@ async def place_limit_gtd_then_wait(
     Returns (order_id_or_none, note).
     """
     if dry_run:
+        paper_result = _simulate_paper_fill(
+            token_id=token_id,
+            side=side,
+            price=price,
+            size=size,
+        )
         log.info(
-            "[DRY RUN] limit BUY size=%.4f @ %.4f token=%s…",
+            "[DRY RUN] limit %s size=%.4f @ %.4f token=%s… paper=%s",
+            side,
             size,
             price,
             token_id[:12],
+            paper_result,
         )
-        return f"dry_{int(time.time())}", "dry_run"
+        return f"dry_{int(time.time())}", paper_result
 
     fee_bps = 0
     try:
