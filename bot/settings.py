@@ -134,6 +134,20 @@ def default_kv_seed() -> dict[str, str]:
         "circuit_breaker_max_fails": "0",
         # Phase 2: wallet scoring
         "wallet_score_decay_half_life_hours": "168",
+        # Phase 2.5: wallet score guards
+        "wallet_provisional_cap_enabled": "false",
+        "wallet_sparse_threshold": "8",
+        "wallet_very_sparse_threshold": "4",
+        "wallet_cap_at_sparse": "0.60",
+        "wallet_cap_at_very_sparse": "0.45",
+        "wallet_degradation_enabled": "false",
+        "wallet_degradation_lookback_hours": "168",
+        "wallet_degradation_min_drop_pct": "20",
+        "wallet_suspicious_check_enabled": "false",
+        "wallet_suspicious_penalty": "0.30",
+        "wallet_hysteresis_enabled": "false",
+        "wallet_hysteresis_promote_margin": "0.05",
+        "wallet_hysteresis_demote_margin": "0.05",
         # Phase 2: EV-aware trade gating
         "ev_gate_enabled": "false",
         "ev_min_edge_bps": "50",
@@ -253,6 +267,21 @@ class Settings:
 
     # Phase 2: wallet scoring
     wallet_score_decay_half_life_hours: float = 168.0
+
+    # Phase 2.5: wallet score guards
+    wallet_provisional_cap_enabled: bool = False
+    wallet_sparse_threshold: int = 8
+    wallet_very_sparse_threshold: int = 4
+    wallet_cap_at_sparse: float = 0.60
+    wallet_cap_at_very_sparse: float = 0.45
+    wallet_degradation_enabled: bool = False
+    wallet_degradation_lookback_hours: float = 168.0
+    wallet_degradation_min_drop_pct: float = 20.0
+    wallet_suspicious_check_enabled: bool = False
+    wallet_suspicious_penalty: float = 0.30
+    wallet_hysteresis_enabled: bool = False
+    wallet_hysteresis_promote_margin: float = 0.05
+    wallet_hysteresis_demote_margin: float = 0.05
 
     # Phase 2: EV-aware trade gating
     ev_gate_enabled: bool = False
@@ -443,6 +472,20 @@ class Settings:
             circuit_breaker_max_fails=_i(g("circuit_breaker_max_fails", "0"), 0),
             # Phase 2
             wallet_score_decay_half_life_hours=_f(g("wallet_score_decay_half_life_hours", "168"), 168.0),
+            # Phase 2.5: wallet score guards
+            wallet_provisional_cap_enabled=_b(g("wallet_provisional_cap_enabled", "false"), False),
+            wallet_sparse_threshold=_i(g("wallet_sparse_threshold", "8"), 8),
+            wallet_very_sparse_threshold=_i(g("wallet_very_sparse_threshold", "4"), 4),
+            wallet_cap_at_sparse=_f(g("wallet_cap_at_sparse", "0.60"), 0.60),
+            wallet_cap_at_very_sparse=_f(g("wallet_cap_at_very_sparse", "0.45"), 0.45),
+            wallet_degradation_enabled=_b(g("wallet_degradation_enabled", "false"), False),
+            wallet_degradation_lookback_hours=_f(g("wallet_degradation_lookback_hours", "168"), 168.0),
+            wallet_degradation_min_drop_pct=_f(g("wallet_degradation_min_drop_pct", "20"), 20.0),
+            wallet_suspicious_check_enabled=_b(g("wallet_suspicious_check_enabled", "false"), False),
+            wallet_suspicious_penalty=_f(g("wallet_suspicious_penalty", "0.30"), 0.30),
+            wallet_hysteresis_enabled=_b(g("wallet_hysteresis_enabled", "false"), False),
+            wallet_hysteresis_promote_margin=_f(g("wallet_hysteresis_promote_margin", "0.05"), 0.05),
+            wallet_hysteresis_demote_margin=_f(g("wallet_hysteresis_demote_margin", "0.05"), 0.05),
             ev_gate_enabled=_b(g("ev_gate_enabled", "false"), False),
             ev_min_edge_bps=_f(g("ev_min_edge_bps", "50"), 50.0),
             ev_min_profit_usd=_f(g("ev_min_profit_usd", "0.10"), 0.10),
@@ -529,6 +572,20 @@ class Settings:
             "circuit_breaker_max_fails": self.circuit_breaker_max_fails,
             # Phase 2
             "wallet_score_decay_half_life_hours": self.wallet_score_decay_half_life_hours,
+            # Phase 2.5: wallet score guards
+            "wallet_provisional_cap_enabled": self.wallet_provisional_cap_enabled,
+            "wallet_sparse_threshold": self.wallet_sparse_threshold,
+            "wallet_very_sparse_threshold": self.wallet_very_sparse_threshold,
+            "wallet_cap_at_sparse": self.wallet_cap_at_sparse,
+            "wallet_cap_at_very_sparse": self.wallet_cap_at_very_sparse,
+            "wallet_degradation_enabled": self.wallet_degradation_enabled,
+            "wallet_degradation_lookback_hours": self.wallet_degradation_lookback_hours,
+            "wallet_degradation_min_drop_pct": self.wallet_degradation_min_drop_pct,
+            "wallet_suspicious_check_enabled": self.wallet_suspicious_check_enabled,
+            "wallet_suspicious_penalty": self.wallet_suspicious_penalty,
+            "wallet_hysteresis_enabled": self.wallet_hysteresis_enabled,
+            "wallet_hysteresis_promote_margin": self.wallet_hysteresis_promote_margin,
+            "wallet_hysteresis_demote_margin": self.wallet_hysteresis_demote_margin,
             "ev_gate_enabled": self.ev_gate_enabled,
             "ev_min_edge_bps": self.ev_min_edge_bps,
             "ev_min_profit_usd": self.ev_min_profit_usd,

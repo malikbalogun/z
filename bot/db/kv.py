@@ -7,7 +7,14 @@ from typing import Any, Optional
 
 from sqlalchemy import select
 
-from bot.db.models import BotSetting, PaperTradeLog, TradeLog, WalletScoreCache, session_scope
+from bot.db.models import (
+    BotSetting,
+    PaperTradeLog,
+    TradeLog,
+    WalletScoreCache,
+    WalletScoreHistory,
+    session_scope,
+)
 
 
 def load_all_kv() -> dict[str, str]:
@@ -160,6 +167,51 @@ def append_paper_trade_log(
             reason=reason,
         ))
         s.commit()
+
+
+# --- Phase 2.5: wallet score history ---
+
+def append_wallet_score_history(
+    wallet: str,
+    score: float,
+    guarded_score: float,
+    tier: str,
+    sample_count: int,
+    suspicious: bool = False,
+) -> None:
+    """Record a point-in-time wallet score snapshot for degradation tracking."""
+    with session_scope() as s:
+        s.add(WalletScoreHistory(
+            wallet=wallet.lower().strip(),
+            score=score,
+            guarded_score=guarded_score,
+            tier=tier,
+            sample_count=sample_count,
+            suspicious=suspicious,
+        ))
+        s.commit()
+
+
+def get_wallet_score_history(
+    wallet: str,
+    limit: int = 50,
+) -> list[dict]:
+    """Retrieve recent score snapshots for a wallet (newest first)."""
+    with session_scope() as s:
+        rows = s.query(WalletScoreHistory).filter(
+            WalletScoreHistory.wallet == wallet.lower().strip()
+        ).order_by(WalletScoreHistory.recorded_at.desc()).limit(limit).all()
+        return [
+            {
+                "score": r.score,
+                "guarded_score": r.guarded_score,
+                "tier": r.tier,
+                "sample_count": r.sample_count,
+                "suspicious": r.suspicious,
+                "recorded_at": r.recorded_at.isoformat() if r.recorded_at else None,
+            }
+            for r in rows
+        ]
 
 
 def paper_trade_fill_rate(limit: int = 100) -> float:
