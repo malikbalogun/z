@@ -29,6 +29,8 @@ class TradeIntent:
     reference_price: Optional[float] = None
     # Two BUY legs share the same id; orchestrator executes both as one decision.
     bundle_id: Optional[str] = None
+    # Phase 2: hours until market resolution (for EV time-discount gate).
+    hours_to_resolution: Optional[float] = None
 
 
 @dataclass

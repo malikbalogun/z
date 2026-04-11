@@ -132,6 +132,24 @@ def default_kv_seed() -> dict[str, str]:
         "max_daily_notional_usd": "0",
         "daily_notional_window_hours": "24",
         "circuit_breaker_max_fails": "0",
+        # Phase 2: wallet scoring
+        "wallet_score_decay_half_life_hours": "168",
+        # Phase 2: EV-aware trade gating
+        "ev_gate_enabled": "false",
+        "ev_min_edge_bps": "50",
+        "ev_min_profit_usd": "0.10",
+        "ev_slippage_estimate_bps": "25",
+        "ev_fee_bps": "0",
+        "ev_time_discount_rate": "0.05",
+        "ev_max_hours_to_resolution": "0",
+        # Phase 2: trade worthiness
+        "max_slippage_bps": "0",
+        "min_survivability": "0",
+        "post_entry_drift_bps": "10",
+        "follower_latency_ms": "500",
+        # Phase 2: paper execution realism
+        "paper_realism_enabled": "true",
+        "paper_slippage_model_bps": "50",
     }
     for ck in cats:
         out[ck] = "true"
@@ -232,6 +250,28 @@ class Settings:
     max_daily_notional_usd: float = 0.0
     daily_notional_window_hours: float = 24.0
     circuit_breaker_max_fails: int = 0
+
+    # Phase 2: wallet scoring
+    wallet_score_decay_half_life_hours: float = 168.0
+
+    # Phase 2: EV-aware trade gating
+    ev_gate_enabled: bool = False
+    ev_min_edge_bps: float = 50.0
+    ev_min_profit_usd: float = 0.10
+    ev_slippage_estimate_bps: float = 25.0
+    ev_fee_bps: float = 0.0
+    ev_time_discount_rate: float = 0.05
+    ev_max_hours_to_resolution: float = 0.0
+
+    # Phase 2: trade worthiness
+    max_slippage_bps: float = 0.0
+    min_survivability: float = 0.0
+    post_entry_drift_bps: float = 10.0
+    follower_latency_ms: float = 500.0
+
+    # Phase 2: paper execution realism
+    paper_realism_enabled: bool = True
+    paper_slippage_model_bps: float = 50.0
 
     @classmethod
     def from_kv(cls, kv: dict[str, str], *, merge_os_environ: bool = False) -> Settings:
@@ -401,6 +441,21 @@ class Settings:
             max_daily_notional_usd=_f(g("max_daily_notional_usd", "0"), 0.0),
             daily_notional_window_hours=_f(g("daily_notional_window_hours", "24"), 24.0),
             circuit_breaker_max_fails=_i(g("circuit_breaker_max_fails", "0"), 0),
+            # Phase 2
+            wallet_score_decay_half_life_hours=_f(g("wallet_score_decay_half_life_hours", "168"), 168.0),
+            ev_gate_enabled=_b(g("ev_gate_enabled", "false"), False),
+            ev_min_edge_bps=_f(g("ev_min_edge_bps", "50"), 50.0),
+            ev_min_profit_usd=_f(g("ev_min_profit_usd", "0.10"), 0.10),
+            ev_slippage_estimate_bps=_f(g("ev_slippage_estimate_bps", "25"), 25.0),
+            ev_fee_bps=_f(g("ev_fee_bps", "0"), 0.0),
+            ev_time_discount_rate=_f(g("ev_time_discount_rate", "0.05"), 0.05),
+            ev_max_hours_to_resolution=_f(g("ev_max_hours_to_resolution", "0"), 0.0),
+            max_slippage_bps=_f(g("max_slippage_bps", "0"), 0.0),
+            min_survivability=_f(g("min_survivability", "0"), 0.0),
+            post_entry_drift_bps=_f(g("post_entry_drift_bps", "10"), 10.0),
+            follower_latency_ms=_f(g("follower_latency_ms", "500"), 500.0),
+            paper_realism_enabled=_b(g("paper_realism_enabled", "true"), True),
+            paper_slippage_model_bps=_f(g("paper_slippage_model_bps", "50"), 50.0),
         )
 
     @classmethod
@@ -472,4 +527,19 @@ class Settings:
             "max_daily_notional_usd": self.max_daily_notional_usd,
             "daily_notional_window_hours": self.daily_notional_window_hours,
             "circuit_breaker_max_fails": self.circuit_breaker_max_fails,
+            # Phase 2
+            "wallet_score_decay_half_life_hours": self.wallet_score_decay_half_life_hours,
+            "ev_gate_enabled": self.ev_gate_enabled,
+            "ev_min_edge_bps": self.ev_min_edge_bps,
+            "ev_min_profit_usd": self.ev_min_profit_usd,
+            "ev_slippage_estimate_bps": self.ev_slippage_estimate_bps,
+            "ev_fee_bps": self.ev_fee_bps,
+            "ev_time_discount_rate": self.ev_time_discount_rate,
+            "ev_max_hours_to_resolution": self.ev_max_hours_to_resolution,
+            "max_slippage_bps": self.max_slippage_bps,
+            "min_survivability": self.min_survivability,
+            "post_entry_drift_bps": self.post_entry_drift_bps,
+            "follower_latency_ms": self.follower_latency_ms,
+            "paper_realism_enabled": self.paper_realism_enabled,
+            "paper_slippage_model_bps": self.paper_slippage_model_bps,
         }

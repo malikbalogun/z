@@ -533,6 +533,18 @@ class TradingBot:
             intents.extend(r)
 
         intents.sort(key=lambda x: -x.priority)
+
+        # Phase 2: enrich intents with hours_to_resolution from market cache
+        if intents and self._market_cache:
+            for it in intents:
+                if it.hours_to_resolution is not None:
+                    continue
+                m = self._market_cache.get(it.condition_id)
+                if m:
+                    hr = hours_until_resolution_end(m)
+                    if hr is not None:
+                        it.hours_to_resolution = hr
+
         cex_map = await self._cex_map_for_intents(intents) if intents else {}
 
         self.state.last_intents = [
@@ -776,8 +788,14 @@ class TradingBot:
 
         status = "unknown"
         nlow = note.lower()
-        if note == "dry_run":
-            status = "dry_run"
+        if note == "dry_run" or note.startswith("dry_run:"):
+            # Phase 2: paper realism may provide more detail
+            if "paper_filled" in nlow:
+                status = "dry_run_filled"
+            elif "paper_miss" in nlow:
+                status = "dry_run_miss"
+            else:
+                status = "dry_run"
         elif note.startswith("filled:"):
             status = "filled"
         elif note.startswith("closed:"):
@@ -787,7 +805,7 @@ class TradingBot:
         else:
             status = "submitted"
 
-        if status == "filled":
+        if status in ("filled", "dry_run_filled"):
             self.state.trades_filled += 1
 
         if (

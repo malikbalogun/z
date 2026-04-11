@@ -153,8 +153,21 @@ def wallet_score(
 ) -> tuple[float, dict[str, float]]:
     """
     Heuristic quality score in [0,1] for source-wallet ranking.
-    Uses only publicly available activity features (frequency, known outcomes, non-extreme prices, size).
+
+    Phase 2: delegates to wallet_score_v2 when available, providing category-aware
+    skill, timing quality, consistency, sample-size Bayesian shrinkage, and decay.
+    Falls back to v1 heuristic if v2 import fails (defensive).
     """
+    try:
+        from bot.wallet_scoring import wallet_score_v2
+        score, result = wallet_score_v2(
+            rows, wallet=wallet, default_bet_usd=default_bet_usd, settings=settings,
+        )
+        return score, result.components
+    except Exception:
+        pass
+
+    # V1 fallback
     cands: list[CopyCandidate] = []
     for e in rows:
         c = build_candidate(e, wallet, default_bet_usd)
