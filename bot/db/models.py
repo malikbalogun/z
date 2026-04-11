@@ -66,6 +66,22 @@ class WalletScoreCache(Base):
     )
 
 
+class WalletScoreHistory(Base):
+    """Phase 2.5: historical wallet score snapshots for degradation detection."""
+    __tablename__ = "wallet_score_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    wallet: Mapped[str] = mapped_column(String(128), index=True)
+    score: Mapped[float] = mapped_column(Float, default=0.0)
+    guarded_score: Mapped[float] = mapped_column(Float, default=0.0)
+    tier: Mapped[str] = mapped_column(String(32), default="unknown")
+    sample_count: Mapped[int] = mapped_column(Integer, default=0)
+    suspicious: Mapped[bool] = mapped_column(Boolean, default=False)
+    recorded_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: dt.datetime.now(dt.UTC)
+    )
+
+
 class PaperTradeLog(Base):
     """Phase 2: paper/dry-run trade outcomes for realism tracking."""
     __tablename__ = "paper_trade_logs"

@@ -29,11 +29,19 @@ class CategorySkill:
 class WalletScoreV2Result:
     """Rich output from the v2 wallet scorer."""
     total_score: float = 0.0
+    guarded_score: float = 0.0
+    tier: str = "unknown"
     category_scores: dict[str, float] = field(default_factory=dict)
     timing_quality: float = 0.0
     consistency: float = 0.0
     sample_penalty: float = 1.0
     decay_factor: float = 1.0
+    provisional_cap_applied: bool = False
+    degradation_flag: bool = False
+    degradation_pct: float = 0.0
+    hysteresis_held: bool = False
+    suspicious: bool = False
+    suspicious_reasons: list[str] = field(default_factory=list)
     components: dict[str, float] = field(default_factory=dict)
 
 
@@ -146,11 +154,18 @@ def wallet_score_v2(
     default_bet_usd: float,
     settings: Any,
     now_epoch: Optional[float] = None,
+    score_history: Optional[list] = None,
+    previous_tier: str = "unknown",
 ) -> tuple[float, WalletScoreV2Result]:
     """
     Phase 2 wallet score: richer, more realistic than v1.
 
-    Returns (score_0_to_1, WalletScoreV2Result).
+    Optional *score_history* (list of ScoreSnapshot) and *previous_tier*
+    enable the guard layer (degradation detection, hysteresis, provisional
+    caps, suspicious-wallet checks).  Both are no-ops when the corresponding
+    settings flags are off.
+
+    Returns (guarded_score, WalletScoreV2Result).
     """
     if now_epoch is None:
         now_epoch = time.time()
@@ -271,7 +286,38 @@ def wallet_score_v2(
         "decay": round(decay_mult, 4),
         "raw": round(raw_score, 4),
     }
-    return final, result
+
+    # --- Guard layer (degradation, hysteresis, provisional cap, suspicious) ---
+    try:
+        from bot.wallet_score_guards import run_guards
+        verdict = run_guards(
+            final,
+            sample_count=n,
+            candidates=cands,
+            history=score_history,
+            previous_tier=previous_tier,
+            settings=settings,
+            now_epoch=now_epoch,
+        )
+        result.guarded_score = verdict.guarded_score
+        result.tier = verdict.tier
+        result.provisional_cap_applied = verdict.provisional_cap_applied
+        result.degradation_flag = verdict.degradation_flag
+        result.degradation_pct = verdict.degradation_pct
+        result.hysteresis_held = verdict.hysteresis_held
+        result.suspicious = verdict.suspicious
+        result.suspicious_reasons = verdict.suspicious_reasons
+        result.components["guarded"] = round(verdict.guarded_score, 4)
+        result.components["tier"] = verdict.tier
+        return verdict.guarded_score, result
+    except Exception:
+        result.guarded_score = final
+        from bot.wallet_score_guards import score_tier as _st
+        try:
+            result.tier = _st(final)
+        except Exception:
+            pass
+        return final, result
 
 
 def _parse_iso_epoch(s: str) -> float:
