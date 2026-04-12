@@ -125,7 +125,10 @@ async def run(ui_mode_override: str | None = None):
         signal.signal(signal.SIGTERM, lambda *_: shutdown())
 
     try:
-        await asyncio.gather(*tasks, return_exceptions=True)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in results:
+            if isinstance(r, Exception):
+                logger.error("Task failed: %s", r, exc_info=r)
     finally:
         await bot.aclose()
 

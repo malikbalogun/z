@@ -122,10 +122,18 @@ def get_wallet_score_cache(wallet: str) -> Optional[dict]:
         ).order_by(WalletScoreCache.computed_at.desc()).first()
         if row is None:
             return None
+        try:
+            components = json.loads(row.components_json or "{}")
+        except (json.JSONDecodeError, TypeError):
+            components = {}
+        try:
+            category_scores = json.loads(row.category_scores_json or "{}")
+        except (json.JSONDecodeError, TypeError):
+            category_scores = {}
         return {
             "score": row.score,
-            "components": json.loads(row.components_json or "{}"),
-            "category_scores": json.loads(row.category_scores_json or "{}"),
+            "components": components,
+            "category_scores": category_scores,
             "sample_count": row.sample_count,
             "decay_factor": row.decay_factor,
             "computed_at": row.computed_at.isoformat() if row.computed_at else None,

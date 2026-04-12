@@ -35,6 +35,8 @@ def load_config() -> dict[str, Any]:
             data = json.loads(p.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 out.update({k: v for k, v in data.items() if v is not None})
+            else:
+                log.warning("config.json is not a JSON object, ignoring contents")
         except Exception as e:
             log.warning("config.json read failed: %s", e)
     return out

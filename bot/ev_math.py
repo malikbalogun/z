@@ -7,7 +7,6 @@ time-to-resolution discount, and EV-aware pass/fail gating.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from typing import Optional
 

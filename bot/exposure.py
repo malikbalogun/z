@@ -25,7 +25,7 @@ def rolling_notional_usd(trades: list[Any], *, hours: float = 24.0) -> float:
         if ts < cutoff:
             continue
         st = str(getattr(t, "status", "") or "").lower()
-        if st in ("cancelled", "canceled"):
+        if st in ("cancelled", "canceled") or st.startswith("dry_run"):
             continue
         try:
             total += float(getattr(t, "cost_usd", 0) or 0)

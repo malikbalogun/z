@@ -83,7 +83,10 @@ async def scan_tradeable_markets(
                 prices = [0.5, 0.5]
         else:
             prices = prices_raw or [0.5, 0.5]
-        prices = [float(p) for p in prices]
+        try:
+            prices = [float(p) for p in prices]
+        except (ValueError, TypeError):
+            continue
 
         liq = float(m.get("liquidityClob", m.get("liquidity_clob", 0)) or 0)
         vol = float(m.get("volume", 0) or 0)

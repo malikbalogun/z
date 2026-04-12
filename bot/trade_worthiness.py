@@ -9,7 +9,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from bot.ev_math import EVResult, compute_ev, resolution_time_gate
+from bot.ev_math import EVResult, compute_ev
 from bot.paper_realism import estimate_slippage_bps, orderbook_survivability_score
 
 log = logging.getLogger("polymarket.trade_worthiness")
