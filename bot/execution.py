@@ -22,19 +22,25 @@ def _simulate_paper_fill(
     side: str,
     price: float,
     size: float,
+    paper_realism_enabled: bool = True,
+    slippage_model_bps: float = 50.0,
+    latency_ms: float = 500.0,
 ) -> str:
     """
     Phase 2: realistic paper fill simulation instead of always returning "dry_run".
     Returns a status note similar to live execution.
+    When paper_realism_enabled is False, always returns plain "dry_run".
     """
+    if not paper_realism_enabled:
+        return "dry_run"
     try:
         from bot.paper_realism import simulate_paper_fill
         result = simulate_paper_fill(
             limit_price=price,
             observed_price=price * 0.97,
             size_usd=price * size,
-            slippage_model_bps=50.0,
-            latency_ms=500.0,
+            slippage_model_bps=slippage_model_bps,
+            latency_ms=latency_ms,
         )
         if result.filled:
             return f"dry_run:paper_filled@{result.fill_price:.4f}_slip={result.slippage_bps:.0f}bps"
@@ -93,6 +99,9 @@ async def place_limit_gtd_then_wait(
     ttl_seconds: int,
     poll_seconds: float,
     dry_run: bool,
+    paper_realism_enabled: bool = True,
+    paper_slippage_model_bps: float = 50.0,
+    follower_latency_ms: float = 500.0,
 ) -> Tuple[Optional[str], str]:
     """
     Post GTD limit; poll until filled / terminal / TTL; cancel if still open.
@@ -104,6 +113,9 @@ async def place_limit_gtd_then_wait(
             side=side,
             price=price,
             size=size,
+            paper_realism_enabled=paper_realism_enabled,
+            slippage_model_bps=paper_slippage_model_bps,
+            latency_ms=follower_latency_ms,
         )
         log.info(
             "[DRY RUN] limit %s size=%.4f @ %.4f token=%s… paper=%s",

@@ -800,6 +800,7 @@ def admin_reload_settings(
         raise HTTPException(status_code=503)
     try:
         bot.settings = Settings.load()
+        bot.state.mode = "dry_run" if bot.settings.dry_run else "live"
         bot._value_agent.settings = bot.settings  # type: ignore[attr-defined]
         bot._copy_agent.settings = bot.settings  # type: ignore[attr-defined]
         bot._latency_agent.settings = bot.settings  # type: ignore[attr-defined]

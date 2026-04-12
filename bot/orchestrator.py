@@ -25,7 +25,7 @@ from bot.http_retry import get_json_retry
 from bot.models import BotState, TradeIntent, TradeRecord, utc_now_iso
 from bot.clob_utils import parse_midpoint
 from bot.reconcile import reconcile_trade_records_inplace, snapshot_open_orders
-from bot.db.kv import append_trade_log
+from bot.db.kv import append_paper_trade_log, append_trade_log
 from bot.exposure import category_exposure_usd, condition_exposure_usd, rolling_notional_usd
 from bot.execution_plan import plan_execution_units
 from bot.market_intel import hours_until_resolution_end
@@ -75,6 +75,7 @@ class TradingBot:
             return Settings.load()
 
         self.settings = await asyncio.to_thread(_run)
+        self.state.mode = "dry_run" if self.settings.dry_run else "live"
         self._value_agent.settings = self.settings
         self._copy_agent.settings = self.settings
         self._latency_agent.settings = self.settings
@@ -781,6 +782,9 @@ class TradingBot:
             ttl_seconds=self.settings.order_ttl_seconds,
             poll_seconds=self.settings.order_poll_seconds,
             dry_run=self.settings.dry_run,
+            paper_realism_enabled=self.settings.paper_realism_enabled,
+            paper_slippage_model_bps=self.settings.paper_slippage_model_bps,
+            follower_latency_ms=self.settings.follower_latency_ms,
         )
 
         if oid is None or note.startswith("create_failed") or note.startswith("post_failed"):
@@ -879,6 +883,21 @@ class TradingBot:
                 outcome=intent.outcome,
                 reconcile_note=rec.reconcile_note,
             )
+            if status.startswith("dry_run"):
+                try:
+                    append_paper_trade_log(
+                        order_id=str(oid),
+                        token_id=intent.token_id,
+                        entry_price=price,
+                        fill_price=price if status == "dry_run_filled" else 0.0,
+                        slippage_bps=0.0,
+                        fill_probability=0.0,
+                        filled=status == "dry_run_filled",
+                        latency_ms=float(self.settings.follower_latency_ms),
+                        reason=str(note)[:200],
+                    )
+                except Exception as pe:
+                    log.warning("DB paper trade log: %s", pe)
 
         try:
             await asyncio.to_thread(_persist)
@@ -892,6 +911,7 @@ class TradingBot:
         self.state.running = True
         while self._running:
             if not self.clob:
+                await self._reload_settings_async()
                 ok = await self.initialize()
                 if not ok:
                     log.info("Waiting for valid keys in database (Admin → settings)…")
