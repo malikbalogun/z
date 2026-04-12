@@ -171,10 +171,121 @@
       font-size:0.68rem; color:#5a6a7a; margin-top:2px; font-style:italic;
     }
 
-    /* Checkbox styled */
+    /* Toggle switch for booleans */
+    .toggle-switch {
+      position:relative; display:inline-block; width:40px; height:22px; flex-shrink:0;
+    }
+    .toggle-switch input { opacity:0; width:0; height:0; }
+    .toggle-switch .slider {
+      position:absolute; cursor:pointer; inset:0;
+      background:#2a2a3a; border:1px solid var(--border); border-radius:22px;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    .toggle-switch .slider::before {
+      content:''; position:absolute; left:2px; top:2px;
+      width:16px; height:16px; border-radius:50%;
+      background:var(--muted); transition: transform 0.2s, background 0.2s;
+    }
+    .toggle-switch input:checked + .slider {
+      background:rgba(61,255,156,0.2); border-color:var(--accent-dim);
+    }
+    .toggle-switch input:checked + .slider::before {
+      transform:translateX(18px); background:var(--accent);
+    }
+    .toggle-switch input:focus + .slider {
+      box-shadow: 0 0 0 2px rgba(61,255,156,0.15);
+    }
+
+    /* Legacy checkbox for non-settings usage */
     input[type="checkbox"] {
       width:16px; height:16px; accent-color:var(--accent); cursor:pointer; flex-shrink:0;
     }
+
+    /* Dry-run banner */
+    .mode-banner {
+      display:flex; align-items:center; gap:12px; padding:12px 18px; border-radius:10px;
+      margin-bottom:16px; font-size:0.85rem; font-weight:600;
+    }
+    .mode-banner.dry-run {
+      background:rgba(255,176,32,0.08); border:1.5px solid rgba(255,176,32,0.35);
+      color:var(--warn);
+    }
+    .mode-banner.live-mode {
+      background:rgba(61,255,156,0.06); border:1.5px solid rgba(61,255,156,0.25);
+      color:var(--accent);
+    }
+    .mode-banner .mode-icon { font-size:1.2rem; }
+    .mode-banner .mode-label { font-size:0.95rem; letter-spacing:0.02em; }
+    .mode-banner .mode-detail { font-size:0.75rem; font-weight:400; color:var(--muted); margin-left:auto; }
+
+    /* Save flow bar */
+    .save-flow-bar {
+      display:flex; align-items:center; gap:10px; padding:10px 16px;
+      background:var(--surface); border:1px solid var(--border); border-radius:10px;
+      margin-bottom:14px; flex-wrap:wrap;
+    }
+    .save-flow-step {
+      display:flex; align-items:center; gap:6px; font-size:0.78rem; color:var(--muted);
+    }
+    .save-flow-step .step-num {
+      display:inline-flex; align-items:center; justify-content:center;
+      width:22px; height:22px; border-radius:50%; font-size:0.68rem; font-weight:700;
+      background:var(--surface2); border:1px solid var(--border); color:var(--muted);
+    }
+    .save-flow-step.active .step-num {
+      background:rgba(61,255,156,0.15); border-color:var(--accent-dim); color:var(--accent);
+    }
+    .save-flow-arrow { color:var(--border); font-size:0.7rem; }
+
+    /* Status pills */
+    .status-pill {
+      display:inline-block; font-size:0.68rem; font-weight:600; padding:2px 8px;
+      border-radius:12px; text-transform:uppercase; letter-spacing:0.04em;
+    }
+    .status-pill.active { background:rgba(61,255,156,0.12); color:var(--accent); }
+    .status-pill.inactive { background:rgba(255,92,92,0.1); color:var(--danger); }
+    .status-pill.admin-role { background:rgba(92,184,255,0.12); color:var(--info); }
+    .status-pill.user-role { background:var(--surface2); color:var(--muted); }
+
+    /* Keyword pills */
+    .kw-pills { display:flex; flex-wrap:wrap; gap:4px; max-width:200px; }
+    .kw-pill {
+      font-size:0.65rem; padding:2px 7px; border-radius:4px;
+      background:var(--surface2); border:1px solid var(--border); color:var(--muted);
+      font-family:'IBM Plex Mono', monospace;
+    }
+
+    /* Telegram setup hint */
+    .setup-hint {
+      display:flex; align-items:flex-start; gap:10px; padding:12px 14px;
+      background:rgba(92,184,255,0.05); border:1px solid rgba(92,184,255,0.15);
+      border-radius:8px; margin-bottom:14px; font-size:0.78rem; color:var(--muted);
+      line-height:1.5;
+    }
+    .setup-hint a { color:var(--info); text-decoration:none; }
+    .setup-hint a:hover { text-decoration:underline; }
+    .setup-hint .hint-icon { font-size:1rem; flex-shrink:0; margin-top:1px; }
+
+    /* Telemetry cards */
+    .tele-grid {
+      display:grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap:10px; margin-top:10px;
+    }
+    .tele-card {
+      background:var(--surface2); border:1px solid var(--border); border-radius:8px;
+      padding:10px 12px;
+    }
+    .tele-card .tele-label {
+      font-size:0.65rem; text-transform:uppercase; letter-spacing:0.06em;
+      color:var(--muted); font-weight:600; margin-bottom:4px;
+    }
+    .tele-card .tele-value {
+      font-size:1.1rem; font-weight:600; font-family:'IBM Plex Mono', monospace;
+      color:var(--text);
+    }
+    .tele-card .tele-value.ok { color:var(--accent); }
+    .tele-card .tele-value.bad { color:var(--danger); }
+    .tele-card .tele-value.warn { color:var(--warn); }
 
     /* Unsaved indicator */
     .unsaved-dot {
@@ -237,6 +348,28 @@
   </div>
   <div id="toast"></div>
   <p id="rolewarn" class="bad"></p>
+
+  <!-- Dry-run / live mode banner -->
+  <div id="modeBanner" class="mode-banner dry-run" style="display:none;">
+    <span class="mode-icon" id="modeBannerIcon">&#9888;</span>
+    <span class="mode-label" id="modeBannerLabel">DRY RUN</span>
+    <span class="mode-detail" id="modeBannerDetail">Trades are simulated — no real orders will be placed</span>
+  </div>
+
+  <!-- Save flow guidance -->
+  <div class="save-flow-bar" id="saveFlowBar">
+    <div class="save-flow-step active" id="sf_step1">
+      <span class="step-num">1</span> Edit settings
+    </div>
+    <span class="save-flow-arrow">&#10132;</span>
+    <div class="save-flow-step" id="sf_step2">
+      <span class="step-num">2</span> Save to database
+    </div>
+    <span class="save-flow-arrow">&#10132;</span>
+    <div class="save-flow-step" id="sf_step3">
+      <span class="step-num">3</span> Apply to running bot
+    </div>
+  </div>
 
   <div id="adminBody">
     <!-- Level toggle -->
@@ -483,8 +616,11 @@ function buildSettingsUI() {
       if (f.type === 'bool') {
         BOOL_KEYS.add(f.key);
         fieldDiv.innerHTML = `
-          <label class="checkbox-label">
-            <input type="checkbox" id="f_${f.key}" data-key="${f.key}">
+          <label class="checkbox-label" style="gap:10px;">
+            <label class="toggle-switch">
+              <input type="checkbox" id="f_${f.key}" data-key="${f.key}">
+              <span class="slider"></span>
+            </label>
             ${esc(f.label)}
           </label>
           <div class="help">${esc(f.help||'')}</div>
@@ -667,10 +803,12 @@ async function saveStructured() {
     body: JSON.stringify({ settings: payload }),
   });
   if (!r.ok) { toast(await readApiError(r), false); return; }
-  toast('Settings saved successfully', true);
+  toast('Settings saved \u2014 click "Apply to bot" to activate changes', true);
   clearUnsaved();
   await loadSettings();
   applySettingsToForm();
+  updateModeBanner();
+  document.getElementById('sf_step3').classList.add('active');
 }
 
 async function saveAdvancedJson() {
@@ -683,9 +821,11 @@ async function saveAdvancedJson() {
     body: JSON.stringify({ settings: obj }),
   });
   if (!r.ok) { toast(await readApiError(r), false); return; }
-  toast('Advanced settings saved', true);
+  toast('Advanced settings saved \u2014 click "Apply to bot" to activate', true);
   await loadSettings();
   applySettingsToForm();
+  updateModeBanner();
+  document.getElementById('sf_step3').classList.add('active');
 }
 
 async function resetSection() {
@@ -714,25 +854,39 @@ async function resetSection() {
 
 async function loadUsers() {
   const u = await (await api('/api/admin/users')).json();
-  document.getElementById('users').innerHTML = u.map(x => `<tr><td>${x.id}</td><td>${esc(x.username)}</td><td>${esc(x.role)}</td><td>${x.is_active}</td></tr>`).join('');
+  document.getElementById('users').innerHTML = u.map(x => `<tr>
+    <td class="mono" style="color:var(--muted)">${x.id}</td>
+    <td><strong>${esc(x.username)}</strong></td>
+    <td><span class="status-pill ${x.role === 'admin' ? 'admin-role' : 'user-role'}">${esc(x.role)}</span></td>
+    <td><span class="status-pill ${x.is_active ? 'active' : 'inactive'}">${x.is_active ? 'Active' : 'Disabled'}</span></td>
+  </tr>`).join('');
 }
 
 async function loadSignals() {
   const sig = await (await api('/api/admin/signals')).json();
-  document.getElementById('sigs').innerHTML = sig.map(x => `
-    <tr>
-      <td>${x.id}</td>
-      <td>${esc(x.title)}</td>
+  document.getElementById('sigs').innerHTML = sig.map(x => {
+    const kws = (x.keywords||[]);
+    const kwHtml = kws.length
+      ? `<div class="kw-pills">${kws.map(k => `<span class="kw-pill">${esc(k)}</span>`).join('')}</div>`
+      : `<span class="muted" style="font-size:0.72rem">none</span>`;
+    return `<tr>
+      <td class="mono" style="color:var(--muted)">${x.id}</td>
+      <td><strong>${esc(x.title)}</strong></td>
       <td><input data-sent="${x.id}" type="number" step="0.05" value="${x.sentiment}" style="max-width:80px;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:0.8rem;"></td>
       <td><input data-wgt="${x.id}" type="number" step="0.1" value="${x.weight}" style="max-width:80px;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:0.8rem;"></td>
-      <td><input data-act="${x.id}" type="checkbox" ${x.active ? 'checked' : ''}></td>
-      <td class="muted mono" style="max-width:140px;overflow:hidden;text-overflow:ellipsis;">${esc(JSON.stringify(x.keywords||[]))}</td>
+      <td>
+        <label class="toggle-switch" style="vertical-align:middle;">
+          <input data-act="${x.id}" type="checkbox" ${x.active ? 'checked' : ''}>
+          <span class="slider"></span>
+        </label>
+      </td>
+      <td>${kwHtml}</td>
       <td style="white-space:nowrap">
         <button class="btn btn-sm" data-upd="${x.id}">Update</button>
         <button class="btn btn-sm btn-danger" data-del="${x.id}">Delete</button>
       </td>
-    </tr>
-  `).join('');
+    </tr>`;
+  }).join('');
 }
 
 /* ─── Intent preview with rich cards ─── */
@@ -764,6 +918,59 @@ function renderPreviewCards(items, containerId) {
   }).join('');
 }
 
+function updateModeBanner() {
+  const banner = document.getElementById('modeBanner');
+  const dryRun = String(SETTINGS.dry_run || 'true').toLowerCase();
+  const isDry = dryRun === 'true' || dryRun === '1';
+  banner.style.display = 'flex';
+  if (isDry) {
+    banner.className = 'mode-banner dry-run';
+    document.getElementById('modeBannerIcon').innerHTML = '&#9888;';
+    document.getElementById('modeBannerLabel').textContent = 'DRY RUN MODE';
+    document.getElementById('modeBannerDetail').textContent = 'Trades are simulated \u2014 no real orders will be placed';
+  } else {
+    banner.className = 'mode-banner live-mode';
+    document.getElementById('modeBannerIcon').innerHTML = '&#9679;';
+    document.getElementById('modeBannerLabel').textContent = 'LIVE TRADING';
+    document.getElementById('modeBannerDetail').textContent = 'Real orders will be placed on Polymarket';
+  }
+}
+
+function injectTelegramSetupHint() {
+  const tgGroup = document.querySelector('.settings-group[data-group-id="telegram"]');
+  if (!tgGroup) return;
+  const body = tgGroup.querySelector('.group-body');
+  if (!body || body.querySelector('.setup-hint')) return;
+  const hint = document.createElement('div');
+  hint.className = 'setup-hint';
+  hint.innerHTML = `
+    <span class="hint-icon">&#128172;</span>
+    <div>
+      <strong>Quick Telegram setup:</strong><br>
+      1. Message <a href="https://t.me/BotFather" target="_blank">@BotFather</a> on Telegram &rarr; <code>/newbot</code> &rarr; copy the token below<br>
+      2. Message <a href="https://t.me/userinfobot" target="_blank">@userinfobot</a> &rarr; copy your Chat ID below<br>
+      3. Enable the master switch and choose which events to notify on
+    </div>
+  `;
+  body.insertBefore(hint, body.firstChild);
+}
+
+function updateSaveFlowState() {
+  const s1 = document.getElementById('sf_step1');
+  const s2 = document.getElementById('sf_step2');
+  const s3 = document.getElementById('sf_step3');
+  if (unsavedChanges) {
+    s1.classList.remove('active'); s2.classList.add('active'); s3.classList.remove('active');
+  } else {
+    s1.classList.add('active'); s2.classList.remove('active'); s3.classList.remove('active');
+  }
+}
+
+const origMarkUnsaved = markUnsaved;
+markUnsaved = function() { origMarkUnsaved(); updateSaveFlowState(); };
+const origClearUnsaved = clearUnsaved;
+clearUnsaved = function() { origClearUnsaved(); updateSaveFlowState(); };
+
 async function loadAll() {
   try {
     const me = await (await api('/api/me')).json();
@@ -777,6 +984,8 @@ async function loadAll() {
     await Promise.all([loadSettings(), loadFieldMeta()]);
     buildSettingsUI();
     applySettingsToForm();
+    updateModeBanner();
+    injectTelegramSetupHint();
     await Promise.all([loadUsers(), loadSignals()]);
   } catch(e) {
     if (String(e.message) !== 'auth') toast(String(e), false);
@@ -807,7 +1016,10 @@ document.getElementById('btn_reset_section').onclick = resetSection;
 document.getElementById('btn_reload').onclick = async () => {
   const r = await api('/api/admin/reload-settings', { method:'POST' });
   if (!r.ok) { toast(await readApiError(r), false); return; }
-  toast('Bot reloaded with current settings', true);
+  toast('Settings applied \u2014 bot is now using the updated configuration', true);
+  document.getElementById('sf_step1').classList.add('active');
+  document.getElementById('sf_step2').classList.remove('active');
+  document.getElementById('sf_step3').classList.remove('active');
 };
 
 document.getElementById('btn_user').onclick = async () => {
@@ -871,7 +1083,24 @@ document.getElementById('btn_wt').onclick = async () => {
   const j = await r.json();
   const out = document.getElementById('wt_out');
   out.style.display = 'block';
-  out.textContent = JSON.stringify(j, null, 2);
+  const trades = j.trades || [];
+  if (!trades.length) {
+    out.textContent = 'No trades found for ' + (j.wallet || w);
+    return;
+  }
+  out.innerHTML = '';
+  out.style.cssText = 'display:block;background:transparent;border:none;padding:0;max-height:400px;overflow:auto;font-family:inherit;';
+  const hdr = `<div style="font-size:0.78rem;color:var(--muted);margin-bottom:8px;">Found <strong style="color:var(--text)">${j.count||trades.length}</strong> trades for <code style="font-size:0.72rem">${esc((j.wallet||w).substring(0,20))}…</code></div>`;
+  const tbl = `<table><thead><tr><th>Title</th><th>Side</th><th>Outcome</th><th>Price</th><th>Size</th></tr></thead><tbody>${
+    trades.map(t => `<tr>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc((t.title||t.market||'').substring(0,60))}</td>
+      <td class="${(t.side||'').toUpperCase()==='BUY'?'green':'red'}">${esc(t.side||'\u2014')}</td>
+      <td>${esc(t.outcome||'\u2014')}</td>
+      <td class="mono">$${Number(t.price||0).toFixed(4)}</td>
+      <td class="mono">${Number(t.size||t.amount||0).toFixed(2)}</td>
+    </tr>`).join('')
+  }</tbody></table>`;
+  out.innerHTML = hdr + tbl;
 };
 
 document.getElementById('btn_intent_preview').onclick = async () => {
@@ -887,7 +1116,12 @@ document.getElementById('btn_intent_preview').onclick = async () => {
     document.getElementById('intent_preview_cards').innerHTML = '';
     const out = document.getElementById('intent_preview_out');
     out.style.display = 'block';
-    out.textContent = JSON.stringify(j, null, 2);
+    if (j.note === 'no_enabled_agents') {
+      out.textContent = 'No agents are currently enabled. Enable agents in Settings \u2192 Trading Agents.';
+    } else {
+      const agents = (j.enabled_agents||[]).join(', ') || 'none';
+      out.textContent = 'No intents generated.\nEnabled agents: ' + agents + '\nAgent filter: ' + (j.agent||'all');
+    }
   }
 };
 
@@ -907,7 +1141,12 @@ document.getElementById('btn_copy_preview').onclick = async () => {
     document.getElementById('copy_preview_cards').innerHTML = '';
     const out = document.getElementById('copy_preview_out');
     out.style.display = 'block';
-    out.textContent = JSON.stringify(j, null, 2);
+    if (j.note === 'no_wallets_configured') {
+      out.textContent = 'No wallets configured for copy trading.\nAdd wallet addresses in Settings \u2192 Copy Trading \u2192 Watch Wallets.';
+    } else {
+      const wallets = (j.wallets||[]).map(w => w.substring(0,12) + '\u2026').join(', ') || 'none';
+      out.textContent = 'No trades matched your copy filters.\nWatched wallets: ' + wallets + '\nMin wallet score: ' + (j.min_score||0);
+    }
   }
 };
 
@@ -952,7 +1191,49 @@ document.getElementById('btn_telemetry').onclick = async () => {
   const j = await r.json();
   const out = document.getElementById('telemetry_out');
   out.style.display = 'block';
-  out.textContent = JSON.stringify(j, null, 2);
+  const runClass = j.running ? 'ok' : 'bad';
+  const modeClass = j.mode === 'dry_run' ? 'warn' : 'ok';
+  const modeLabel = j.mode === 'dry_run' ? 'Dry Run' : (j.mode || '\u2014');
+  const failClass = (j.consecutive_exec_failures || 0) > 0 ? 'bad' : 'ok';
+
+  function fmtTime(iso) { return iso ? new Date(iso).toLocaleString() : '\u2014'; }
+
+  out.innerHTML = '';
+  out.style.cssText = 'display:block;background:transparent;border:none;padding:0;max-height:none;overflow:visible;font-family:inherit;';
+
+  const grid = document.createElement('div');
+  grid.className = 'tele-grid';
+  grid.innerHTML = `
+    <div class="tele-card"><div class="tele-label">Status</div><div class="tele-value ${runClass}">${j.running ? 'Running' : 'Stopped'}</div></div>
+    <div class="tele-card"><div class="tele-label">Mode</div><div class="tele-value ${modeClass}">${modeLabel}</div></div>
+    <div class="tele-card"><div class="tele-label">Balance</div><div class="tele-value">$${(j.balance_usdc||0).toFixed(2)}</div></div>
+    <div class="tele-card"><div class="tele-label">Portfolio</div><div class="tele-value">$${(j.portfolio_value||0).toFixed(2)}</div></div>
+    <div class="tele-card"><div class="tele-label">Markets Scanned</div><div class="tele-value">${j.markets_scanned||0}</div></div>
+    <div class="tele-card"><div class="tele-label">Trades Placed</div><div class="tele-value">${j.trades_placed||0}</div></div>
+    <div class="tele-card"><div class="tele-label">Trades Filled</div><div class="tele-value ok">${j.trades_filled||0}</div></div>
+    <div class="tele-card"><div class="tele-label">Open Orders</div><div class="tele-value">${j.open_orders_count||0}</div></div>
+    <div class="tele-card"><div class="tele-label">Exec Failures</div><div class="tele-value ${failClass}">${j.consecutive_exec_failures||0}</div></div>
+    <div class="tele-card"><div class="tele-label">Rolling Notional</div><div class="tele-value">$${(j.rolling_notional_window_usd||0).toFixed(2)}</div></div>
+    <div class="tele-card"><div class="tele-label">Started</div><div class="tele-value" style="font-size:0.78rem;">${fmtTime(j.started_at)}</div></div>
+    <div class="tele-card"><div class="tele-label">Last Scan</div><div class="tele-value" style="font-size:0.78rem;">${fmtTime(j.last_scan)}</div></div>
+  `;
+  out.appendChild(grid);
+
+  if (j.agents_fired && j.agents_fired.length) {
+    const agDiv = document.createElement('div');
+    agDiv.style.cssText = 'margin-top:10px;font-size:0.78rem;';
+    agDiv.innerHTML = '<span style="color:var(--muted);font-weight:600;">Agents fired:</span> ' +
+      j.agents_fired.map(a => `<span style="display:inline-block;padding:2px 8px;border-radius:5px;border:1px solid var(--border);background:var(--surface2);margin:2px 3px;font-weight:500;">${esc(a)}</span>`).join('');
+    out.appendChild(agDiv);
+  }
+
+  if (j.errors && j.errors.length) {
+    const errDiv = document.createElement('div');
+    errDiv.style.cssText = 'margin-top:10px;padding:10px;border-radius:8px;background:rgba(255,92,92,0.06);border:1px solid #4a2020;';
+    errDiv.innerHTML = '<div style="font-size:0.75rem;font-weight:600;color:var(--danger);margin-bottom:6px;">Errors</div>' +
+      j.errors.map(e => `<div style="font-size:0.75rem;color:#ffaaaa;margin-bottom:3px;">\u2022 ${esc(e)}</div>`).join('');
+    out.appendChild(errDiv);
+  }
 };
 
 document.getElementById('logout').onclick = async (e) => {
