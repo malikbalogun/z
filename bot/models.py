@@ -77,6 +77,8 @@ class BotState:
     consecutive_exec_failures: int = 0
     # Rejected/skipped intents from last cycle (for dashboard visibility).
     last_skipped_intents: list[dict] = field(default_factory=list)
+    # Per-agent runtime diagnostics from last cycle (keyed by agent id).
+    cycle_agent_runtime: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 def utc_now_iso() -> str:

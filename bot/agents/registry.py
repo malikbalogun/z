@@ -48,8 +48,23 @@ AGENTS: tuple[AgentInfo, ...] = (
 )
 
 
-def agents_status(settings: Any) -> list[dict[str, Any]]:
-    """For dashboard / terminal: which agents exist and whether they are on."""
+def agents_status(
+    settings: Any,
+    *,
+    cycle_runtime: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """For dashboard / terminal: which agents exist and their live state.
+
+    ``cycle_runtime`` is an optional dict keyed by agent id with per-cycle
+    runtime info produced by the orchestrator:
+        {
+          "scheduled": bool,   — agent was scheduled to run this cycle
+          "ran": bool,         — propose() completed (False on exception)
+          "intents": int,      — number of intents produced
+          "note": str,         — brief human-readable diagnostic
+        }
+    When omitted the output is backwards-compatible (config-only view).
+    """
     enabled = {
         "value_edge": bool(getattr(settings, "agent_value", True)),
         "copy_signal": bool(getattr(settings, "agent_copy", False))
@@ -58,8 +73,10 @@ def agents_status(settings: Any) -> list[dict[str, Any]]:
         "bundle_arb": bool(getattr(settings, "agent_bundle", False)),
         "zscore_edge": bool(getattr(settings, "agent_zscore", False)),
     }
+    rt = cycle_runtime or {}
     out = []
     for a in AGENTS:
+        info = rt.get(a.id, {})
         out.append(
             {
                 "id": a.id,
@@ -67,6 +84,10 @@ def agents_status(settings: Any) -> list[dict[str, Any]]:
                 "description": a.short,
                 "priority": a.priority,
                 "enabled": enabled.get(a.id, False),
+                "scheduled": info.get("scheduled", False),
+                "ran": info.get("ran", False),
+                "intents": info.get("intents", 0),
+                "note": info.get("note", ""),
             }
         )
     return out

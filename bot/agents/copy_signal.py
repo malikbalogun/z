@@ -28,12 +28,25 @@ class CopySignalAgent:
         self.settings = settings
         self._seen: Set[str] = set()
         self._cold_start = True
+        self.last_note: str = ""
+
+    @property
+    def is_cold_start(self) -> bool:
+        return self._cold_start
 
     async def propose(self, http: httpx.AsyncClient) -> list[TradeIntent]:
         if not self.settings.agent_copy or not self.settings.copy_watch_wallets:
+            self.last_note = "disabled or no wallets configured"
             return []
 
         intents: list[TradeIntent] = []
+        wallets_polled = 0
+        wallets_score_skipped = 0
+        candidates_seen_dup = 0
+        candidates_cold_skipped = 0
+        candidates_filter_rejected = 0
+        api_errors = 0
+
         for wallet in self.settings.copy_watch_wallets:
             try:
                 rows = await get_json_retry(
@@ -42,10 +55,14 @@ class CopySignalAgent:
                     params={"user": wallet, "limit": "40"},
                 )
                 if not isinstance(rows, list):
+                    api_errors += 1
                     continue
             except Exception as e:
                 log.warning("copy poll %s…: %s", wallet[:10], e)
+                api_errors += 1
                 continue
+
+            wallets_polled += 1
 
             score, parts = wallet_score(
                 rows if isinstance(rows, list) else [],
@@ -62,6 +79,7 @@ class CopySignalAgent:
                     min_score,
                     {k: round(v, 3) for k, v in parts.items()},
                 )
+                wallets_score_skipped += 1
                 continue
 
             for entry in rows:
@@ -70,13 +88,16 @@ class CopySignalAgent:
                     continue
 
                 if c.tx_key in self._seen:
+                    candidates_seen_dup += 1
                     continue
                 self._seen.add(c.tx_key)
                 if self._cold_start:
+                    candidates_cold_skipped += 1
                     continue
 
                 ok, _reason = passes_filters(self.settings, c)
                 if not ok:
+                    candidates_filter_rejected += 1
                     continue
                 max_px = limit_price_with_buffer(self.settings, c.price)
                 usdc = max(self.settings.min_bet_usd, min(self.settings.max_bet_usd, c.usdc))
@@ -104,6 +125,7 @@ class CopySignalAgent:
                     )
                 )
 
+        was_cold = self._cold_start
         if self._cold_start:
             self._cold_start = False
             log.info(
@@ -114,5 +136,20 @@ class CopySignalAgent:
         if len(self._seen) > 5000:
             self._seen = set(list(self._seen)[-2500:])
 
-        log.info("CopySignalAgent: %d new signals", len(intents))
+        parts_list = []
+        if was_cold:
+            parts_list.append(f"cold_start_seeded={candidates_cold_skipped}")
+        parts_list.append(f"polled={wallets_polled}/{len(self.settings.copy_watch_wallets)}")
+        if wallets_score_skipped:
+            parts_list.append(f"score_skip={wallets_score_skipped}")
+        if candidates_seen_dup:
+            parts_list.append(f"dup={candidates_seen_dup}")
+        if candidates_filter_rejected:
+            parts_list.append(f"filtered={candidates_filter_rejected}")
+        if api_errors:
+            parts_list.append(f"api_err={api_errors}")
+        parts_list.append(f"new={len(intents)}")
+        self.last_note = "; ".join(parts_list)
+
+        log.info("CopySignalAgent: %d new signals (%s)", len(intents), self.last_note)
         return intents

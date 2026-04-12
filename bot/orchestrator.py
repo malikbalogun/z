@@ -515,28 +515,64 @@ class TradingBot:
         markets = await self._gamma_scan()
         pos_tokens = {p["token_id"] for p in self.state.positions}
 
-        tasks = []
+        agent_tasks: list[tuple[str, asyncio.Task]] = []
         if self.settings.agent_value:
-            tasks.append(self._value_agent.propose(self.clob, markets, pos_tokens, self._rate_limit))
+            agent_tasks.append(("value_edge", asyncio.ensure_future(
+                self._value_agent.propose(self.clob, markets, pos_tokens, self._rate_limit))))
         if self.settings.agent_latency:
-            tasks.append(self._latency_agent.propose(self.clob, markets, pos_tokens, self._rate_limit))
+            agent_tasks.append(("latency_arb", asyncio.ensure_future(
+                self._latency_agent.propose(self.clob, markets, pos_tokens, self._rate_limit))))
         if self.settings.agent_bundle:
-            tasks.append(self._bundle_agent.propose(self.clob, markets, pos_tokens, self._rate_limit))
+            agent_tasks.append(("bundle_arb", asyncio.ensure_future(
+                self._bundle_agent.propose(self.clob, markets, pos_tokens, self._rate_limit))))
         if self.settings.agent_zscore:
-            tasks.append(self._zscore_agent.propose(self.clob, markets, pos_tokens, self._rate_limit))
-        copy_task = None
-        if self.settings.agent_copy and self.settings.copy_watch_wallets:
-            copy_task = self._copy_agent.propose(self._http)
-            tasks.append(copy_task)
+            agent_tasks.append(("zscore_edge", asyncio.ensure_future(
+                self._zscore_agent.propose(self.clob, markets, pos_tokens, self._rate_limit))))
+        copy_scheduled = bool(self.settings.agent_copy and self.settings.copy_watch_wallets)
+        if copy_scheduled:
+            agent_tasks.append(("copy_signal", asyncio.ensure_future(
+                self._copy_agent.propose(self._http))))
 
+        tasks = [t for _, t in agent_tasks]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         intents: list[TradeIntent] = []
-        for r in results:
+
+        runtime: dict[str, dict[str, Any]] = {}
+        scheduled_ids = {aid for aid, _ in agent_tasks}
+        for aid in ("value_edge", "latency_arb", "bundle_arb", "zscore_edge", "copy_signal"):
+            runtime[aid] = {"scheduled": aid in scheduled_ids, "ran": False, "intents": 0, "note": ""}
+
+        for (aid, _task), r in zip(agent_tasks, results):
             if isinstance(r, Exception):
-                log.error("agent error: %s", r)
-                self.state.errors.append(str(r))
+                log.error("agent error (%s): %s", aid, r)
+                self.state.errors.append(f"{aid}: {r}")
+                runtime[aid]["ran"] = False
+                runtime[aid]["note"] = f"error: {r}"
                 continue
+            runtime[aid]["ran"] = True
+            runtime[aid]["intents"] = len(r)
             intents.extend(r)
+
+        if copy_scheduled:
+            cold_note = "cold_start" if self._copy_agent.is_cold_start else ""
+            agent_note = getattr(self._copy_agent, "last_note", "")
+            note = cold_note or agent_note
+            runtime["copy_signal"]["note"] = note
+        elif self.settings.agent_copy and not self.settings.copy_watch_wallets:
+            runtime["copy_signal"]["note"] = "enabled but no wallets configured"
+
+        self.state.cycle_agent_runtime = runtime
+        for aid, info in runtime.items():
+            if info["scheduled"]:
+                slog(
+                    log,
+                    self.settings.structured_log,
+                    "agent_result",
+                    agent=aid,
+                    ran=info["ran"],
+                    intents=info["intents"],
+                    note=info["note"][:200] if info["note"] else "",
+                )
 
         intents.sort(key=lambda x: -x.priority)
 
@@ -979,7 +1015,10 @@ class TradingBot:
             "cex_snapshot": self.state.cex_snapshot,
             "last_intents": self.state.last_intents[:15],
             "agents_fired": self.state.agents_fired,
-            "agents_detail": agents_status(self.settings),
+            "agents_detail": agents_status(
+                self.settings,
+                cycle_runtime=self.state.cycle_agent_runtime,
+            ),
             "open_orders_count": len(self.state.open_orders),
             "last_reconcile_at": self.state.last_reconcile_at,
             "reconcile_updates_last": self.state.reconcile_updates_last,
