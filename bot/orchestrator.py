@@ -74,7 +74,12 @@ class TradingBot:
         def _run() -> Settings:
             return Settings.load()
 
-        self.settings = await asyncio.to_thread(_run)
+        try:
+            new_settings = await asyncio.to_thread(_run)
+        except Exception as exc:
+            log.error("_reload_settings_async failed, keeping old settings: %s", exc)
+            return
+        self.settings = new_settings
         self.state.mode = "dry_run" if self.settings.dry_run else "live"
         self._value_agent.settings = self.settings
         self._copy_agent.settings = self.settings

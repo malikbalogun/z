@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import unittest
 
 from bot.agents.registry import agents_status
 from bot.execution import _simulate_paper_fill
 from bot.models import BotState
-from bot.settings import Settings
+from bot.settings import Settings, default_kv_seed
+from bot.settings_validation import validate_and_normalize_settings_patch
 
 
 class TestModeSyncsWithDryRun(unittest.TestCase):
@@ -146,6 +148,161 @@ class TestPaperRealismSettingsWiring(unittest.TestCase):
         kv = {"paper_realism_enabled": "false"}
         s = Settings.from_kv(kv)
         self.assertFalse(s.paper_realism_enabled)
+
+
+class TestCopySignalAdminRoundTrip(unittest.TestCase):
+    """Full admin save→load→agents_status round-trip for copy signal card."""
+
+    VALID_WALLET = "0x" + "ab" * 20
+
+    def _simulate_admin_save_and_reload(self, admin_payload: dict) -> Settings:
+        """Simulate: admin saves settings, then reloads via Settings.from_kv."""
+        normalized, errors = validate_and_normalize_settings_patch(admin_payload)
+        self.assertEqual(errors, {}, f"Unexpected validation errors: {errors}")
+        kv = dict(default_kv_seed())
+        kv.update(normalized)
+        return Settings.from_kv(kv)
+
+    def test_enable_copy_with_wallets_shows_on(self):
+        """Admin enables agent_copy and adds wallets → card must show ON."""
+        s = self._simulate_admin_save_and_reload({
+            "agent_copy": "true",
+            "copy_watch_wallets": json.dumps([self.VALID_WALLET]),
+        })
+        self.assertTrue(s.agent_copy)
+        self.assertEqual(s.copy_watch_wallets, [self.VALID_WALLET])
+        copy = next(a for a in agents_status(s) if a["id"] == "copy_signal")
+        self.assertTrue(copy["enabled"], "Copy signal card should be ON")
+
+    def test_enable_copy_without_wallets_shows_off(self):
+        """Admin enables agent_copy but no wallets → card must show OFF."""
+        s = self._simulate_admin_save_and_reload({
+            "agent_copy": "true",
+            "copy_watch_wallets": "[]",
+        })
+        self.assertTrue(s.agent_copy)
+        self.assertEqual(s.copy_watch_wallets, [])
+        copy = next(a for a in agents_status(s) if a["id"] == "copy_signal")
+        self.assertFalse(copy["enabled"], "Copy signal card should be OFF without wallets")
+
+    def test_disable_copy_with_wallets_shows_off(self):
+        """Admin disables agent_copy but has wallets → card must show OFF."""
+        s = self._simulate_admin_save_and_reload({
+            "agent_copy": "false",
+            "copy_watch_wallets": json.dumps([self.VALID_WALLET]),
+        })
+        self.assertFalse(s.agent_copy)
+        copy = next(a for a in agents_status(s) if a["id"] == "copy_signal")
+        self.assertFalse(copy["enabled"], "Copy signal card should be OFF when agent disabled")
+
+    def test_structured_form_round_trip(self):
+        """Simulate the exact JS collectSettingsFromForm → Python validate → load path."""
+        wallet = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"
+        js_items = [wallet.lower()]
+        js_payload = json.dumps(js_items)
+
+        all_defaults = dict(default_kv_seed())
+        all_defaults["agent_copy"] = "true"
+        all_defaults["copy_watch_wallets"] = js_payload
+
+        normalized, errors = validate_and_normalize_settings_patch(all_defaults)
+        self.assertEqual(errors, {})
+        self.assertEqual(normalized["agent_copy"], "true")
+
+        kv = dict(default_kv_seed())
+        kv.update(normalized)
+        s = Settings.from_kv(kv)
+        self.assertTrue(s.agent_copy)
+        self.assertEqual(len(s.copy_watch_wallets), 1)
+        self.assertEqual(s.copy_watch_wallets[0], wallet.lower())
+
+        copy = next(a for a in agents_status(s) if a["id"] == "copy_signal")
+        self.assertTrue(copy["enabled"])
+
+    def test_multiple_wallets_all_valid(self):
+        w1 = "0x" + "ab" * 20
+        w2 = "0x" + "cd" * 20
+        s = self._simulate_admin_save_and_reload({
+            "agent_copy": "true",
+            "copy_watch_wallets": json.dumps([w1, w2]),
+        })
+        self.assertEqual(len(s.copy_watch_wallets), 2)
+        copy = next(a for a in agents_status(s) if a["id"] == "copy_signal")
+        self.assertTrue(copy["enabled"])
+
+    def test_wallet_validation_rejects_bad_address(self):
+        """If wallets fail validation, the save should error, not silently drop them."""
+        _, errors = validate_and_normalize_settings_patch({
+            "copy_watch_wallets": json.dumps(["not_an_address"]),
+        })
+        self.assertIn("copy_watch_wallets", errors)
+
+    def test_mixed_valid_invalid_wallets_rejected(self):
+        """Validation rejects the entire field if any wallet is invalid."""
+        _, errors = validate_and_normalize_settings_patch({
+            "copy_watch_wallets": json.dumps(["bad", self.VALID_WALLET]),
+        })
+        self.assertIn("copy_watch_wallets", errors)
+
+
+class TestSettingsLoadFallback(unittest.TestCase):
+    """Settings.load raises when DB is configured but read fails."""
+
+    def test_load_without_db_returns_defaults(self):
+        """Without a DB engine, load falls back to defaults silently."""
+        from bot.db import models
+        old_engine = models._engine
+        models._engine = None
+        try:
+            s = Settings.load()
+            self.assertFalse(s.agent_copy)
+            self.assertEqual(s.copy_watch_wallets, [])
+        finally:
+            models._engine = old_engine
+
+    def test_load_with_db_propagates_errors(self):
+        """With a DB engine configured, load must not silently swallow errors."""
+        from bot.db import models
+        from unittest.mock import patch
+
+        dummy_engine = object()
+        old_engine = models._engine
+        models._engine = dummy_engine
+        try:
+            with patch("bot.db.kv.load_all_kv", side_effect=RuntimeError("db broken")):
+                with self.assertRaises(RuntimeError):
+                    Settings.load()
+        finally:
+            models._engine = old_engine
+
+
+class TestReloadKeepsSettingsOnError(unittest.TestCase):
+    """_reload_settings_async must keep old settings when load fails."""
+
+    def test_old_settings_preserved_on_error(self):
+        """If Settings.load raises, the bot keeps its previous settings."""
+        import asyncio
+        from unittest.mock import patch, AsyncMock, MagicMock
+
+        old_settings = Settings(agent_copy=True, copy_watch_wallets=["0x" + "ab" * 20])
+        bot = MagicMock()
+        bot.settings = old_settings
+        bot.state = BotState(mode="dry_run")
+        bot._value_agent = MagicMock()
+        bot._copy_agent = MagicMock()
+        bot._latency_agent = MagicMock()
+        bot._bundle_agent = MagicMock()
+        bot._zscore_agent = MagicMock()
+
+        from bot.orchestrator import TradingBot
+
+        async def run_reload():
+            with patch.object(Settings, "load", side_effect=RuntimeError("db error")):
+                await TradingBot._reload_settings_async(bot)
+
+        asyncio.run(run_reload())
+        self.assertIs(bot.settings, old_settings,
+                      "Settings should be unchanged after a failed reload")
 
 
 if __name__ == "__main__":
