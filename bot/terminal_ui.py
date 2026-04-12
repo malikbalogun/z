@@ -51,15 +51,29 @@ def _build_renderable(bot: Any):
     agents = Table(title="Agents", box=box.ROUNDED, expand=True)
     agents.add_column("Agent", style="cyan")
     agents.add_column("P", justify="right", width=4)
-    agents.add_column("On", justify="center", width=6)
-    agents.add_column("Role", style="dim")
+    agents.add_column("State", justify="center", width=16)
+    agents.add_column("Note", style="dim")
     for row in d.get("agents_detail") or []:
-        on = "[green]ON[/]" if row.get("enabled") else "[dim]off[/]"
+        enabled = row.get("enabled", False)
+        ran = row.get("ran", False)
+        intents = row.get("intents", 0)
+        note = row.get("note", "")
+        if not enabled:
+            state_str = "[dim]off[/]"
+        elif ran and intents > 0:
+            state_str = f"[bold green]TRIGGERED ({intents})[/]"
+        elif ran:
+            state_str = "[blue]ARMED[/]"
+        else:
+            state_str = "[green]ENABLED[/]"
+        desc = (row.get("description") or "")[:36]
+        if note:
+            desc = note[:52]
         agents.add_row(
             row.get("id", "?"),
             str(row.get("priority", "")),
-            on,
-            (row.get("description") or "")[:52] + ("…" if len(row.get("description") or "") > 52 else ""),
+            state_str,
+            desc + ("…" if len(desc) >= 52 else ""),
         )
 
     intents = Table(title="Recent intents (sample)", box=box.SIMPLE, expand=True)

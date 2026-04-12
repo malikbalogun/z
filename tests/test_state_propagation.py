@@ -245,6 +245,123 @@ class TestCopySignalAdminRoundTrip(unittest.TestCase):
         self.assertIn("copy_watch_wallets", errors)
 
 
+class TestAgentsStatusRuntime(unittest.TestCase):
+    """agents_status returns enriched fields when cycle_runtime is provided."""
+
+    VALID_WALLET = "0x" + "ab" * 20
+
+    def test_without_runtime_defaults_to_false(self):
+        """Without cycle_runtime, new fields default to False/0/empty."""
+        s = Settings(agent_value=True)
+        statuses = agents_status(s)
+        ve = next(a for a in statuses if a["id"] == "value_edge")
+        self.assertTrue(ve["enabled"])
+        self.assertFalse(ve["scheduled"])
+        self.assertFalse(ve["ran"])
+        self.assertEqual(ve["intents"], 0)
+        self.assertEqual(ve["note"], "")
+
+    def test_with_runtime_reflects_agent_state(self):
+        """cycle_runtime is surfaced in agent status output."""
+        s = Settings(agent_value=True, agent_copy=True, copy_watch_wallets=[self.VALID_WALLET])
+        rt = {
+            "value_edge": {"scheduled": True, "ran": True, "intents": 3, "note": ""},
+            "copy_signal": {"scheduled": True, "ran": True, "intents": 0, "note": "cold_start_seeded=15; polled=1/1; new=0"},
+        }
+        statuses = agents_status(s, cycle_runtime=rt)
+        ve = next(a for a in statuses if a["id"] == "value_edge")
+        self.assertTrue(ve["enabled"])
+        self.assertTrue(ve["scheduled"])
+        self.assertTrue(ve["ran"])
+        self.assertEqual(ve["intents"], 3)
+
+        cs = next(a for a in statuses if a["id"] == "copy_signal")
+        self.assertTrue(cs["enabled"])
+        self.assertTrue(cs["scheduled"])
+        self.assertTrue(cs["ran"])
+        self.assertEqual(cs["intents"], 0)
+        self.assertIn("cold_start", cs["note"])
+
+    def test_disabled_agent_not_scheduled(self):
+        """Disabled agent: enabled=False, scheduled/ran/intents all False/0."""
+        s = Settings(agent_copy=False, copy_watch_wallets=[])
+        rt = {}
+        statuses = agents_status(s, cycle_runtime=rt)
+        cs = next(a for a in statuses if a["id"] == "copy_signal")
+        self.assertFalse(cs["enabled"])
+        self.assertFalse(cs["scheduled"])
+        self.assertFalse(cs["ran"])
+        self.assertEqual(cs["intents"], 0)
+
+    def test_error_agent_ran_false(self):
+        """Agent that raised an exception: ran=False, note has error."""
+        s = Settings(agent_latency=True)
+        rt = {
+            "latency_arb": {"scheduled": True, "ran": False, "intents": 0, "note": "error: timeout"},
+        }
+        statuses = agents_status(s, cycle_runtime=rt)
+        la = next(a for a in statuses if a["id"] == "latency_arb")
+        self.assertTrue(la["enabled"])
+        self.assertTrue(la["scheduled"])
+        self.assertFalse(la["ran"])
+        self.assertIn("error", la["note"])
+
+    def test_triggered_state_semantics(self):
+        """Dashboard: enabled + ran + intents > 0 = TRIGGERED."""
+        s = Settings(agent_value=True)
+        rt = {"value_edge": {"scheduled": True, "ran": True, "intents": 5, "note": ""}}
+        statuses = agents_status(s, cycle_runtime=rt)
+        ve = next(a for a in statuses if a["id"] == "value_edge")
+        self.assertTrue(ve["enabled"])
+        self.assertTrue(ve["ran"])
+        self.assertGreater(ve["intents"], 0)
+
+    def test_armed_state_semantics(self):
+        """Dashboard: enabled + ran + intents == 0 = ARMED (no opportunities)."""
+        s = Settings(agent_value=True)
+        rt = {"value_edge": {"scheduled": True, "ran": True, "intents": 0, "note": ""}}
+        statuses = agents_status(s, cycle_runtime=rt)
+        ve = next(a for a in statuses if a["id"] == "value_edge")
+        self.assertTrue(ve["enabled"])
+        self.assertTrue(ve["ran"])
+        self.assertEqual(ve["intents"], 0)
+
+
+class TestCopySignalAgentDiagnostics(unittest.TestCase):
+    """CopySignalAgent exposes cold_start and diagnostic notes."""
+
+    def test_cold_start_flag(self):
+        s = Settings(agent_copy=True, copy_watch_wallets=["0x" + "ab" * 20])
+        from bot.agents.copy_signal import CopySignalAgent
+        agent = CopySignalAgent(s)
+        self.assertTrue(agent.is_cold_start)
+
+    def test_last_note_when_disabled(self):
+        import asyncio
+        import httpx
+        s = Settings(agent_copy=False, copy_watch_wallets=[])
+        from bot.agents.copy_signal import CopySignalAgent
+        agent = CopySignalAgent(s)
+        result = asyncio.run(agent.propose(httpx.AsyncClient()))
+        self.assertEqual(result, [])
+        self.assertIn("disabled", agent.last_note)
+
+
+class TestBotStateCycleRuntime(unittest.TestCase):
+    """BotState.cycle_agent_runtime field exists and defaults to empty dict."""
+
+    def test_default_empty(self):
+        state = BotState()
+        self.assertEqual(state.cycle_agent_runtime, {})
+
+    def test_can_set_runtime(self):
+        state = BotState()
+        state.cycle_agent_runtime = {
+            "value_edge": {"scheduled": True, "ran": True, "intents": 2, "note": ""},
+        }
+        self.assertEqual(state.cycle_agent_runtime["value_edge"]["intents"], 2)
+
+
 class TestSettingsLoadFallback(unittest.TestCase):
     """Settings.load raises when DB is configured but read fails."""
 

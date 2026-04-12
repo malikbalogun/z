@@ -155,6 +155,8 @@ body {
 }
 .pill-on { background: rgba(61,255,156,0.2); color: var(--accent); }
 .pill-off { background: #2a2222; color: var(--muted); }
+.pill-armed { background: rgba(92,184,255,0.2); color: var(--info); }
+.pill-triggered { background: rgba(61,255,156,0.35); color: var(--accent); font-weight: 700; }
 
 .cat-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .cat-pill {
@@ -372,10 +374,37 @@ function renderAgents(detail) {
   }
   el.innerHTML = detail.map(a => {
     const on = !!a.enabled;
+    const scheduled = !!a.scheduled;
+    const ran = !!a.ran;
+    const intents = a.intents || 0;
+    const note = a.note || '';
+
+    let statusPill, statusClass;
+    if (!on) {
+      statusPill = 'OFF';
+      statusClass = 'pill-off';
+    } else if (ran && intents > 0) {
+      statusPill = `TRIGGERED (${intents})`;
+      statusClass = 'pill-triggered';
+    } else if (ran) {
+      statusPill = 'ARMED';
+      statusClass = 'pill-armed';
+    } else if (scheduled) {
+      statusPill = 'ENABLED';
+      statusClass = 'pill-on';
+    } else {
+      statusPill = 'ENABLED';
+      statusClass = 'pill-on';
+    }
+
+    const noteHtml = note
+      ? `<div class="meta mono" style="margin-top:4px;font-size:0.68rem;color:var(--muted);word-break:break-all;">${escHtml(note)}</div>`
+      : '';
+
     return `<div class="agent-card ${on ? '' : 'off'}">
-      <h3>${escHtml(a.title || a.id)} <span class="pill ${on ? 'pill-on' : 'pill-off'}">${on ? 'ON' : 'OFF'}</span></h3>
+      <h3>${escHtml(a.title || a.id)} <span class="pill ${statusClass}">${statusPill}</span></h3>
       <div class="meta mono">id: ${escHtml(a.id)} · priority ${a.priority}</div>
-      <p>${escHtml(a.description || '')}</p>
+      <p>${escHtml(a.description || '')}</p>${noteHtml}
     </div>`;
   }).join('');
 }
