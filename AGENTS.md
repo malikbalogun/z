@@ -27,3 +27,11 @@ Shell equivalents: `bash scripts/setup_workspace.sh`, `bash scripts/package_for_
 ## External automation (e.g. Clawbot)
 
 Prefer invoking **fixed commands** above from the machine where the workspace lives (or from CI), rather than pasting SSH private keys into chat. If Clawbot can run shell on a host that has this repo cloned, wire it to: `make setup`, `make test`, `make package`, or `git pull && make setup && make test`.
+
+## Cursor Cloud specific instructions
+
+- **System dep**: `python3.12-venv` is not pre-installed in the Cloud Agent VM. The update script handles it via `apt-get install -y python3.12-venv`.
+- **Lint**: No dedicated linter is configured in this repo (no `ruff`, `flake8`, or `mypy` in `requirements.txt`). Tests are the primary quality gate: `make test`.
+- **Running the app**: `make run` (or `source .venv/bin/activate && python main.py --ui dashboard`). The web dashboard listens on port **5002**. Default bootstrap admin credentials are in `config.json` (`admin` / `change-me-immediately`).
+- **No external services required for dev**: SQLite is embedded; `config.json` is auto-created from `config.json.example` by `make setup`. The bot starts in **DRY_RUN** mode and runs without Polymarket API keys (it just logs "waiting for valid keys" and retries every ~12 s).
+- **Tests are fully offline**: `make test` runs 131 unit tests with no network or API keys needed.
