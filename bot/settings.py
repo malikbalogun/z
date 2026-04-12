@@ -491,14 +491,23 @@ class Settings:
     @classmethod
     def load(cls) -> Settings:
         """Load from DB; falls back to env merge if DB empty (e.g. tests without init)."""
+        import logging
+
+        _log = logging.getLogger("polymarket.settings")
         try:
             from bot.db.kv import load_all_kv
 
             kv = load_all_kv()
             if kv:
                 return cls.from_kv(kv, merge_os_environ=True)
-        except Exception:
-            pass
+            _log.warning("load_all_kv returned empty dict — using defaults")
+        except Exception as exc:
+            from bot.db.models import _engine
+
+            if _engine is not None:
+                _log.error("Settings.load failed with configured DB: %s", exc)
+                raise
+            _log.debug("Settings.load fallback (no DB engine): %s", exc)
         return cls.from_kv(default_kv_seed(), merge_os_environ=True)
 
     def to_public_dict(self) -> dict[str, Any]:

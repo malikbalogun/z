@@ -808,7 +808,13 @@ def admin_reload_settings(
         bot._zscore_agent.settings = bot.settings  # type: ignore[attr-defined]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    return {"ok": True}
+    from bot.agents.registry import agents_status as _agents_status
+
+    statuses = _agents_status(bot.settings)
+    return {
+        "ok": True,
+        "agents": {a["id"]: a["enabled"] for a in statuses},
+    }
 
 
 class HookPauseBody(BaseModel):
