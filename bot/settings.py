@@ -100,6 +100,9 @@ def default_kv_seed() -> dict[str, str]:
         "copy_max_price": "1",
         "copy_price_buffer_bps": "300",
         "copy_min_wallet_score": "0",
+        "copy_min_win_rate": "0.60",
+        "copy_min_win_streak": "3",
+        "copy_min_total_trades": "5",
         "copy_wallet_score_overrides": "{}",
         "copy_allow_unknown_outcome": "true",
         "copy_allowed_categories": "[]",
@@ -218,6 +221,9 @@ class Settings:
     copy_max_price: float = 1.0
     copy_price_buffer_bps: float = 300.0
     copy_min_wallet_score: float = 0.0
+    copy_min_win_rate: float = 0.60
+    copy_min_win_streak: int = 3
+    copy_min_total_trades: int = 5
     copy_wallet_score_overrides: dict[str, float] = field(default_factory=dict)
     copy_allow_unknown_outcome: bool = True
     copy_allowed_categories: list[str] = field(default_factory=list)
@@ -429,6 +435,9 @@ class Settings:
             copy_max_price=_f(g("copy_max_price", "1"), 1.0),
             copy_price_buffer_bps=_f(g("copy_price_buffer_bps", "300"), 300.0),
             copy_min_wallet_score=_f(g("copy_min_wallet_score", "0"), 0.0),
+            copy_min_win_rate=_f(g("copy_min_win_rate", "0.60"), 0.60),
+            copy_min_win_streak=_i(g("copy_min_win_streak", "3"), 3),
+            copy_min_total_trades=_i(g("copy_min_total_trades", "5"), 5),
             copy_wallet_score_overrides=json_obj_float("copy_wallet_score_overrides"),
             copy_allow_unknown_outcome=_b(g("copy_allow_unknown_outcome", "true"), True),
             copy_allowed_categories=json_list_lower("copy_allowed_categories"),
@@ -533,6 +542,9 @@ class Settings:
             "copy_max_price": self.copy_max_price,
             "copy_price_buffer_bps": self.copy_price_buffer_bps,
             "copy_min_wallet_score": self.copy_min_wallet_score,
+            "copy_min_win_rate": self.copy_min_win_rate,
+            "copy_min_win_streak": self.copy_min_win_streak,
+            "copy_min_total_trades": self.copy_min_total_trades,
             "copy_wallet_score_overrides": dict(self.copy_wallet_score_overrides),
             "copy_allow_unknown_outcome": self.copy_allow_unknown_outcome,
             "copy_allowed_categories": list(self.copy_allowed_categories),
