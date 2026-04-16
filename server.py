@@ -37,7 +37,7 @@ if _upload.exists():
 @app.get("/api/health")
 async def health():
     ok = trader is not None and getattr(trader, "clob", None) is not None
-    out: dict = {"ok": True, "trader_ready": ok}
+    out: dict = {"ok": ok, "trader_ready": ok}
     if trader and ok:
         st = getattr(trader, "state", None)
         if st is not None:
@@ -139,7 +139,7 @@ async def kill_switch(user: User = Depends(require_admin)):
     if trader:
         trader.stop()
         return {"success": True, "message": "Bot stopped"}
-    return {"success": False, "message": "No trader running"}
+    return JSONResponse({"success": False, "message": "No trader running"}, status_code=503)
 
 
 @app.post("/api/scan")
@@ -150,7 +150,7 @@ async def force_scan(user: User = Depends(require_admin)):
         await trader.run_cycle()
         return {"success": True, "markets_scanned": trader.state.markets_scanned}
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 
 active_connections = []
@@ -175,8 +175,8 @@ async def websocket_endpoint(websocket: WebSocket):
             if trader:
                 await websocket.send_json(trader.get_state_dict())
             await asyncio.sleep(5)
-    except WebSocketDisconnect:
-        active_connections.remove(websocket)
-    except Exception:
+    except (WebSocketDisconnect, Exception):
+        pass
+    finally:
         if websocket in active_connections:
             active_connections.remove(websocket)

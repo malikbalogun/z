@@ -77,7 +77,7 @@ class CopySignalAgent:
                     wallet[:10],
                     score,
                     min_score,
-                    {k: round(v, 3) for k, v in parts.items()},
+                    {k: round(v, 3) if isinstance(v, (int, float)) else v for k, v in parts.items()},
                 )
                 wallets_score_skipped += 1
                 continue
@@ -112,7 +112,7 @@ class CopySignalAgent:
                         agent=self.name,
                         priority=self.priority,
                         token_id=c.token_id,
-                        condition_id=cond or c.token_id[:16],
+                        condition_id=cond,
                         question=c.title[:500],
                         outcome=str(entry.get("outcome") or c.outcome or "unknown"),
                         side="BUY",
