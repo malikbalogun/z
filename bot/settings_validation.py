@@ -30,6 +30,7 @@ BOOL_KEYS = {
     "spread_gate_enabled",
     "resolution_gate_enabled",
     "copy_allow_unknown_outcome",
+    "copy_auto_manage",
     "ENABLE_CRYPTO_SHORT",
     "ENABLE_CRYPTO_OTHER",
     "ENABLE_SPORTS",
@@ -60,6 +61,9 @@ INT_RANGES: dict[str, tuple[int, int | None]] = {
     "zscore_window": (5, 500),
     "zscore_min_samples": (3, 500),
     "copy_poll_seconds": (2, 3600),
+    "copy_min_win_streak": (0, 100),
+    "copy_min_total_trades": (0, 500),
+    "copy_max_watched_wallets": (1, 200),
     "reconcile_history_depth": (1, 500),
     "open_orders_display_limit": (1, 1000),
     "pnl_sizing_window": (5, 365),
@@ -97,6 +101,8 @@ FLOAT_RANGES: dict[str, tuple[float, float | None]] = {
     "copy_max_price": (0.0, 1.0),
     "copy_price_buffer_bps": (0.0, 5000.0),
     "copy_min_wallet_score": (0.0, 1.0),
+    "copy_min_win_rate": (0.0, 1.0),
+    "copy_refresh_interval_hours": (0.5, 168.0),
     "max_category_exposure_usd": (0.0, None),
 }
 
@@ -129,6 +135,7 @@ LIST_KEYS = {
     "copy_allowed_outcomes",
     "copy_required_keywords",
     "copy_blocked_keywords",
+    "copy_discover_categories",
 }
 DICT_FLOAT_KEYS = {"copy_wallet_score_overrides", "category_exposure_caps"}
 

@@ -17,6 +17,7 @@ from bot.agents.latency_arb import LatencyArbAgent
 from bot.agents.registry import agents_status
 from bot.agents.value_edge import ValueEdgeAgent
 from bot.agents.zscore_edge import ZScoreEdgeAgent
+from bot.copy_manager import CopyManager
 from bot.categories import MarketCategory
 from bot.cex import fetch_cex_bundle, infer_crypto_asset_from_text
 from bot.execution import place_limit_gtd_then_wait, place_market_fok_fallback
@@ -57,6 +58,7 @@ class TradingBot:
         self._latency_agent = LatencyArbAgent(self.settings)
         self._bundle_agent = BundleArbAgent(self.settings)
         self._zscore_agent = ZScoreEdgeAgent(self.settings)
+        self._copy_manager = CopyManager(self.settings)
 
         w = self.settings.wallet_address
         log.info(
@@ -86,6 +88,7 @@ class TradingBot:
         self._latency_agent.settings = self.settings
         self._bundle_agent.settings = self.settings
         self._zscore_agent.settings = self.settings
+        self._copy_manager.settings = self.settings
 
     async def _rate_limit(self):
         gap = 0.35
@@ -514,6 +517,18 @@ class TradingBot:
         if self.settings.trading_paused:
             log.info("TRADING_PAUSED: skipping cycle")
             return
+
+        if self._http and self._copy_manager.needs_refresh():
+            try:
+                result = await self._copy_manager.refresh(self._http)
+                if result.get("added") or result.get("pruned"):
+                    await self._reload_settings_async()
+                    log.info(
+                        "CopyManager auto-refresh: +%d added, -%d pruned, %d active",
+                        result.get("added", 0), result.get("pruned", 0), result.get("active", 0),
+                    )
+            except Exception as e:
+                log.warning("CopyManager refresh error: %s", e)
 
         await self.refresh_balance()
         await self.refresh_positions()
@@ -1060,4 +1075,6 @@ class TradingBot:
                 2,
             ),
             "last_skipped_intents": self.state.last_skipped_intents[:20],
+            "copy_manager": self._copy_manager.get_summary(),
+            "copy_managed_wallets": self._copy_manager.get_managed_wallets()[:50],
         }

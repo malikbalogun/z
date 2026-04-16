@@ -27,7 +27,14 @@ from bot.orderbook import orderbook_buy_depth_ok
 from bot.risk import gate_intent
 from bot.settings import Settings, default_kv_seed
 from bot.settings_validation import validate_and_normalize_settings_patch
-from bot.leaderboard import discover_top_wallets, fetch_leaderboard, CATEGORIES, TIME_PERIODS
+from bot.leaderboard import (
+    analyze_wallet_quality,
+    discover_qualified_wallets,
+    discover_top_wallets,
+    fetch_leaderboard,
+    CATEGORIES,
+    TIME_PERIODS,
+)
 from bot.wallet_trades import fetch_wallet_trades
 from bot.web.deps import get_current_user, get_db, require_admin, verify_user_password
 
@@ -383,6 +390,13 @@ def _settings_field_groups() -> list[dict]:
                 {"key": "copy_required_keywords", "label": "Required Keywords", "type": "list", "help": "Only copy trades whose market title contains one of these keywords."},
                 {"key": "copy_blocked_keywords", "label": "Blocked Keywords", "type": "list", "help": "Skip trades whose market title contains any of these keywords."},
                 {"key": "copy_min_wallet_score", "label": "Min Wallet Score", "type": "float", "help": "Minimum historical performance score for the source wallet (0.0-1.0)."},
+                {"key": "copy_min_win_rate", "label": "Min Win Rate", "type": "float", "help": "Minimum win rate (0.0-1.0) for leaderboard wallet import. E.g. 0.60 = 60%. Wallets below (this - 10%) get auto-pruned."},
+                {"key": "copy_min_win_streak", "label": "Min Win Streak", "type": "int", "help": "Minimum consecutive wins required for a wallet to qualify for copy-trading."},
+                {"key": "copy_min_total_trades", "label": "Min Total Trades", "type": "int", "help": "Minimum number of resolved trades required before a wallet is trusted."},
+                {"key": "copy_auto_manage", "label": "Auto-Manage Wallets", "type": "bool", "help": "Automatically discover, monitor, and prune wallets from leaderboard. No manual wallet pasting needed."},
+                {"key": "copy_refresh_interval_hours", "label": "Refresh Interval (hours)", "type": "float", "help": "How often to re-scan the leaderboard for new wallets and prune underperformers."},
+                {"key": "copy_max_watched_wallets", "label": "Max Watched Wallets", "type": "int", "help": "Maximum number of wallets to watch simultaneously."},
+                {"key": "copy_discover_categories", "label": "Discovery Categories", "type": "list", "help": "Leaderboard categories to scan: OVERALL, CRYPTO, SPORTS, POLITICS, FINANCE (one per line)."},
                 {"key": "copy_wallet_score_overrides", "label": "Wallet Score Overrides (JSON)", "type": "json", "help": "Override scores for specific wallets. E.g. {\"0xabc...\": 0.15}"},
             ],
         },
@@ -959,8 +973,11 @@ async def admin_leaderboard(
 class LeaderboardImportBody(BaseModel):
     categories: list[str] = Field(default=["OVERALL"])
     time_period: str = Field(default="MONTH")
-    limit_per_category: int = Field(default=10, ge=1, le=50)
+    limit_per_category: int = Field(default=25, ge=1, le=50)
     min_pnl: float = Field(default=0.0)
+    min_win_rate: float = Field(default=0.60, ge=0.0, le=1.0)
+    min_win_streak: int = Field(default=3, ge=0, le=100)
+    min_total_trades: int = Field(default=5, ge=0, le=500)
     merge: bool = Field(default=True)
 
 
@@ -970,23 +987,26 @@ async def admin_leaderboard_import(
     request: Request,
     _: Annotated[User, Depends(require_admin)],
 ):
-    """Discover top wallets from the Polymarket leaderboard and add them to copy_watch_wallets."""
+    """Discover top wallets, analyze win rate + streak, import only qualified ones."""
     bot = _trader(request)
     http = getattr(bot, "_http", None) if bot else None
     if http is None:
         import httpx as _httpx
         http = _httpx.AsyncClient(timeout=30.0)
 
-    discovered = await discover_top_wallets(
+    qualified = await discover_qualified_wallets(
         http,
         categories=body.categories,
         time_period=body.time_period,
         limit_per_category=body.limit_per_category,
         min_pnl=body.min_pnl,
+        min_win_rate=body.min_win_rate,
+        min_win_streak=body.min_win_streak,
+        min_total_trades=body.min_total_trades,
     )
-    new_wallets = [w["wallet"] for w in discovered]
+    new_wallets = [w["wallet"] for w in qualified]
     if not new_wallets:
-        return {"ok": True, "added": 0, "total": 0, "wallets": []}
+        return {"ok": True, "added": 0, "total": 0, "wallets": [], "qualified": qualified}
 
     existing: list[str] = []
     if body.merge:
@@ -1017,5 +1037,63 @@ async def admin_leaderboard_import(
         "added": added,
         "total": len(final),
         "wallets": final,
-        "discovered": discovered,
+        "qualified": qualified,
     }
+
+
+@router.get("/api/admin/wallet-quality")
+async def admin_wallet_quality(
+    request: Request,
+    _: Annotated[User, Depends(require_admin)],
+    wallet: str = "",
+):
+    """Analyze a single wallet's closed positions for win rate and streaks."""
+    w = wallet.strip().lower()
+    if not w or not w.startswith("0x") or len(w) != 42:
+        raise HTTPException(status_code=400, detail="Invalid wallet address")
+    bot = _trader(request)
+    http = getattr(bot, "_http", None) if bot else None
+    if http is None:
+        import httpx as _httpx
+        http = _httpx.AsyncClient(timeout=30.0)
+    quality = await analyze_wallet_quality(http, w)
+    return {"ok": True, **quality}
+
+
+@router.get("/api/admin/copy-manager")
+async def admin_copy_manager_status(
+    request: Request,
+    _: Annotated[User, Depends(require_admin)],
+):
+    bot = _trader(request)
+    if not bot:
+        raise HTTPException(status_code=503, detail="Trader not initialized")
+    mgr = getattr(bot, "_copy_manager", None)
+    if not mgr:
+        return {"ok": False, "error": "copy_manager not available"}
+    return {
+        "ok": True,
+        "summary": mgr.get_summary(),
+        "wallets": mgr.get_managed_wallets(),
+    }
+
+
+@router.post("/api/admin/copy-manager/refresh")
+async def admin_copy_manager_refresh(
+    request: Request,
+    _: Annotated[User, Depends(require_admin)],
+):
+    """Force an immediate copy manager refresh (re-scan + prune)."""
+    bot = _trader(request)
+    if not bot:
+        raise HTTPException(status_code=503, detail="Trader not initialized")
+    mgr = getattr(bot, "_copy_manager", None)
+    http = getattr(bot, "_http", None)
+    if not mgr or not http:
+        raise HTTPException(status_code=503, detail="copy_manager or http not ready")
+    result = await mgr.refresh(http)
+    if result.get("added") or result.get("pruned"):
+        from bot.settings import Settings
+        bot.settings = Settings.load()
+        bot._copy_agent.settings = bot.settings
+    return {"ok": True, **result}
