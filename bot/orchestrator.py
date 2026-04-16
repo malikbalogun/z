@@ -102,6 +102,7 @@ class TradingBot:
         if not self.settings.polymarket_private_key:
             if self.settings.dry_run:
                 log.warning("DRY RUN without CLOB keys — scanning + paper trades only (set keys in Admin for full agent coverage)")
+                self.state.errors = [e for e in self.state.errors if e != "No POLYMARKET_PRIVATE_KEY"]
                 self.state.started_at = utc_now_iso()
                 self.state.running = True
                 return True
@@ -145,6 +146,9 @@ class TradingBot:
 
     async def refresh_balance(self):
         if not self.settings.wallet_address or not self._http:
+            if self.settings.dry_run and self.state.usdc_balance <= 0:
+                self.state.usdc_balance = self.settings.default_bet_usd * 100
+                log.info("DRY RUN: no wallet configured, using simulated balance $%.2f", self.state.usdc_balance)
             return
         payload = {
             "jsonrpc": "2.0",
@@ -391,7 +395,7 @@ class TradingBot:
         )
 
     async def _orderbook_gate_passes(self, intent: TradeIntent) -> bool:
-        if not self.clob or not self.settings.orderbook_gate_enabled or intent.side.upper() != "BUY":
+        if self.clob is None or not self.settings.orderbook_gate_enabled or intent.side.upper() != "BUY":
             return True
         share = float(self.settings.orderbook_min_bid_share)
         ok_book = await asyncio.to_thread(

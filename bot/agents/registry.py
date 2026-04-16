@@ -67,8 +67,7 @@ def agents_status(
     """
     enabled = {
         "value_edge": bool(getattr(settings, "agent_value", True)),
-        "copy_signal": bool(getattr(settings, "agent_copy", False))
-        and bool(getattr(settings, "copy_watch_wallets", [])),
+        "copy_signal": bool(getattr(settings, "agent_copy", False)),
         "latency_arb": bool(getattr(settings, "agent_latency", False)),
         "bundle_arb": bool(getattr(settings, "agent_bundle", False)),
         "zscore_edge": bool(getattr(settings, "agent_zscore", False)),

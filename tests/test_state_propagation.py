@@ -46,11 +46,11 @@ class TestCopyAgentStatus(unittest.TestCase):
         copy = next(a for a in statuses if a["id"] == "copy_signal")
         self.assertFalse(copy["enabled"])
 
-    def test_copy_off_when_enabled_but_no_wallets(self):
+    def test_copy_enabled_when_toggled_on_but_no_wallets(self):
         s = Settings(agent_copy=True, copy_watch_wallets=[])
         statuses = agents_status(s)
         copy = next(a for a in statuses if a["id"] == "copy_signal")
-        self.assertFalse(copy["enabled"])
+        self.assertTrue(copy["enabled"])
 
     def test_copy_on_when_enabled_and_wallets(self):
         s = Settings(agent_copy=True, copy_watch_wallets=["0x" + "a" * 40])
@@ -174,8 +174,8 @@ class TestCopySignalAdminRoundTrip(unittest.TestCase):
         copy = next(a for a in agents_status(s) if a["id"] == "copy_signal")
         self.assertTrue(copy["enabled"], "Copy signal card should be ON")
 
-    def test_enable_copy_without_wallets_shows_off(self):
-        """Admin enables agent_copy but no wallets → card must show OFF."""
+    def test_enable_copy_without_wallets_shows_enabled(self):
+        """Admin enables agent_copy but no wallets → card shows enabled (toggle on)."""
         s = self._simulate_admin_save_and_reload({
             "agent_copy": "true",
             "copy_watch_wallets": "[]",
@@ -183,7 +183,7 @@ class TestCopySignalAdminRoundTrip(unittest.TestCase):
         self.assertTrue(s.agent_copy)
         self.assertEqual(s.copy_watch_wallets, [])
         copy = next(a for a in agents_status(s) if a["id"] == "copy_signal")
-        self.assertFalse(copy["enabled"], "Copy signal card should be OFF without wallets")
+        self.assertTrue(copy["enabled"], "Copy signal card should reflect toggle state")
 
     def test_disable_copy_with_wallets_shows_off(self):
         """Admin disables agent_copy but has wallets → card must show OFF."""

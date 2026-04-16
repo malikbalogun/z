@@ -878,6 +878,34 @@ async function copyAllErrors() {
   }
 }
 
+async function copyAllErrors() {
+  try {
+    const resp = await fetch('/api/errors', { credentials: 'include' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    const errs = data.errors || [];
+    if (!errs.length) { alert('No errors to copy.'); return; }
+    const text = errs.join('\n');
+    await navigator.clipboard.writeText(text);
+    const btn = document.querySelector('#errorsBox .btn');
+    if (btn) { const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = orig, 1500); }
+  } catch (e) {
+    const el = document.getElementById('errorsList');
+    if (el) {
+      const items = Array.from(el.querySelectorAll('li'));
+      const text = items.map(li => li.textContent).join('\n');
+      try { await navigator.clipboard.writeText(text); } catch (_) {
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px;';
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      const btn = document.querySelector('#errorsBox .btn');
+      if (btn) { const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = orig, 1500); }
+    }
+  }
+}
+
 fetchState();
 setInterval(fetchState, 5000);
 </script>
