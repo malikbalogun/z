@@ -390,9 +390,13 @@ def _settings_field_groups() -> list[dict]:
                 {"key": "copy_required_keywords", "label": "Required Keywords", "type": "list", "help": "Only copy trades whose market title contains one of these keywords."},
                 {"key": "copy_blocked_keywords", "label": "Blocked Keywords", "type": "list", "help": "Skip trades whose market title contains any of these keywords."},
                 {"key": "copy_min_wallet_score", "label": "Min Wallet Score", "type": "float", "help": "Minimum historical performance score for the source wallet (0.0-1.0)."},
-                {"key": "copy_min_win_rate", "label": "Min Win Rate", "type": "float", "help": "Minimum win rate (0.0-1.0) for leaderboard wallet import. E.g. 0.60 = 60%."},
+                {"key": "copy_min_win_rate", "label": "Min Win Rate", "type": "float", "help": "Minimum win rate (0.0-1.0) for leaderboard wallet import. E.g. 0.60 = 60%. Wallets below (this - 10%) get auto-pruned."},
                 {"key": "copy_min_win_streak", "label": "Min Win Streak", "type": "int", "help": "Minimum consecutive wins required for a wallet to qualify for copy-trading."},
                 {"key": "copy_min_total_trades", "label": "Min Total Trades", "type": "int", "help": "Minimum number of resolved trades required before a wallet is trusted."},
+                {"key": "copy_auto_manage", "label": "Auto-Manage Wallets", "type": "bool", "help": "Automatically discover, monitor, and prune wallets from leaderboard. No manual wallet pasting needed."},
+                {"key": "copy_refresh_interval_hours", "label": "Refresh Interval (hours)", "type": "float", "help": "How often to re-scan the leaderboard for new wallets and prune underperformers."},
+                {"key": "copy_max_watched_wallets", "label": "Max Watched Wallets", "type": "int", "help": "Maximum number of wallets to watch simultaneously."},
+                {"key": "copy_discover_categories", "label": "Discovery Categories", "type": "list", "help": "Leaderboard categories to scan: OVERALL, CRYPTO, SPORTS, POLITICS, FINANCE (one per line)."},
                 {"key": "copy_wallet_score_overrides", "label": "Wallet Score Overrides (JSON)", "type": "json", "help": "Override scores for specific wallets. E.g. {\"0xabc...\": 0.15}"},
             ],
         },
@@ -1054,3 +1058,42 @@ async def admin_wallet_quality(
         http = _httpx.AsyncClient(timeout=30.0)
     quality = await analyze_wallet_quality(http, w)
     return {"ok": True, **quality}
+
+
+@router.get("/api/admin/copy-manager")
+async def admin_copy_manager_status(
+    request: Request,
+    _: Annotated[User, Depends(require_admin)],
+):
+    bot = _trader(request)
+    if not bot:
+        raise HTTPException(status_code=503, detail="Trader not initialized")
+    mgr = getattr(bot, "_copy_manager", None)
+    if not mgr:
+        return {"ok": False, "error": "copy_manager not available"}
+    return {
+        "ok": True,
+        "summary": mgr.get_summary(),
+        "wallets": mgr.get_managed_wallets(),
+    }
+
+
+@router.post("/api/admin/copy-manager/refresh")
+async def admin_copy_manager_refresh(
+    request: Request,
+    _: Annotated[User, Depends(require_admin)],
+):
+    """Force an immediate copy manager refresh (re-scan + prune)."""
+    bot = _trader(request)
+    if not bot:
+        raise HTTPException(status_code=503, detail="Trader not initialized")
+    mgr = getattr(bot, "_copy_manager", None)
+    http = getattr(bot, "_http", None)
+    if not mgr or not http:
+        raise HTTPException(status_code=503, detail="copy_manager or http not ready")
+    result = await mgr.refresh(http)
+    if result.get("added") or result.get("pruned"):
+        from bot.settings import Settings
+        bot.settings = Settings.load()
+        bot._copy_agent.settings = bot.settings
+    return {"ok": True, **result}
