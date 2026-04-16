@@ -477,6 +477,32 @@
       </div>
 
       <div class="settings-group" style="margin-top:16px;">
+        <div class="group-header open"><h3>Leaderboard Discovery</h3><div class="group-desc">Auto-discover top Polymarket traders and import their wallets for copy-trading</div></div>
+        <div class="group-body open">
+          <div class="field-grid">
+            <div class="field">
+              <label>Categories</label>
+              <div id="lb_categories" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">
+                <label style="font-size:0.78rem;display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" value="OVERALL" checked> Overall</label>
+                <label style="font-size:0.78rem;display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" value="CRYPTO"> Crypto</label>
+                <label style="font-size:0.78rem;display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" value="SPORTS"> Sports</label>
+                <label style="font-size:0.78rem;display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" value="POLITICS"> Politics</label>
+                <label style="font-size:0.78rem;display:flex;align-items:center;gap:4px;cursor:pointer;"><input type="checkbox" value="FINANCE"> Finance</label>
+              </div>
+            </div>
+            <div class="field"><label>Time period</label><select id="lb_period" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:0.82rem;"><option value="MONTH" selected>Month</option><option value="WEEK">Week</option><option value="DAY">Day</option><option value="ALL">All time</option></select></div>
+            <div class="field"><label>Top N per category</label><input id="lb_limit" type="number" value="10" min="1" max="50"></div>
+            <div class="field"><label>Min PnL ($)</label><input id="lb_min_pnl" type="number" value="0" min="0" step="100"></div>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:10px;">
+            <button type="button" class="btn" id="btn_lb_preview">Preview leaderboard</button>
+            <button type="button" class="btn btn-primary" id="btn_lb_import">Import to watch list</button>
+          </div>
+          <div id="lb_results" style="margin-top:12px;"></div>
+        </div>
+      </div>
+
+      <div class="settings-group" style="margin-top:16px;">
         <div class="group-header open"><h3>Copy Preview / Debug</h3><div class="group-desc">Fetches recent wallet trades and shows pass/fail by your current copy filters</div></div>
         <div class="group-body open">
           <div class="field-grid">
@@ -1122,6 +1148,82 @@ document.getElementById('btn_intent_preview').onclick = async () => {
       const agents = (j.enabled_agents||[]).join(', ') || 'none';
       out.textContent = 'No intents generated.\nEnabled agents: ' + agents + '\nAgent filter: ' + (j.agent||'all');
     }
+  }
+};
+
+document.getElementById('btn_lb_preview').onclick = async () => {
+  const cats = Array.from(document.querySelectorAll('#lb_categories input:checked')).map(cb => cb.value);
+  if (!cats.length) { toast('Select at least one category', 'error'); return; }
+  const tp = document.getElementById('lb_period').value;
+  const lim = Math.max(1, Math.min(50, Number(document.getElementById('lb_limit').value) || 10));
+  const minPnl = Number(document.getElementById('lb_min_pnl').value) || 0;
+  const el = document.getElementById('lb_results');
+  el.innerHTML = '<p style="color:var(--muted);font-size:0.8rem;">Loading leaderboard...</p>';
+  try {
+    const all = [];
+    for (const cat of cats) {
+      const qs = new URLSearchParams({ category: cat, time_period: tp, limit: String(lim) });
+      const r = await api('/api/admin/leaderboard?' + qs.toString());
+      const j = await r.json();
+      (j.entries || []).forEach(e => { e._cat = cat; all.push(e); });
+    }
+    const seen = new Set();
+    const deduped = all.filter(e => {
+      const w = (e.proxyWallet || '').toLowerCase();
+      if (seen.has(w)) return false;
+      seen.add(w);
+      return true;
+    }).filter(e => (e.pnl || 0) >= minPnl);
+    deduped.sort((a, b) => (b.pnl || 0) - (a.pnl || 0));
+    if (!deduped.length) {
+      el.innerHTML = '<p style="color:var(--muted);font-size:0.8rem;">No traders found matching criteria.</p>';
+      return;
+    }
+    el.innerHTML = '<table style="width:100%;font-size:0.78rem;border-collapse:collapse;">' +
+      '<thead><tr><th style="text-align:left;padding:6px 4px;border-bottom:1px solid var(--border);color:var(--muted);font-size:0.65rem;">Rank</th><th style="text-align:left;padding:6px 4px;border-bottom:1px solid var(--border);color:var(--muted);font-size:0.65rem;">Wallet</th><th style="text-align:left;padding:6px 4px;border-bottom:1px solid var(--border);color:var(--muted);font-size:0.65rem;">User</th><th style="text-align:right;padding:6px 4px;border-bottom:1px solid var(--border);color:var(--muted);font-size:0.65rem;">PnL</th><th style="text-align:right;padding:6px 4px;border-bottom:1px solid var(--border);color:var(--muted);font-size:0.65rem;">Volume</th><th style="text-align:left;padding:6px 4px;border-bottom:1px solid var(--border);color:var(--muted);font-size:0.65rem;">Category</th></tr></thead>' +
+      '<tbody>' + deduped.map((e, i) => {
+        const w = (e.proxyWallet || '').toLowerCase();
+        const pnl = Number(e.pnl || 0);
+        const vol = Number(e.vol || 0);
+        const pnlColor = pnl >= 0 ? 'var(--accent)' : 'var(--danger)';
+        return '<tr style="border-bottom:1px solid #121820;">' +
+          '<td style="padding:6px 4px;">' + (e.rank || i+1) + '</td>' +
+          '<td style="padding:6px 4px;font-family:monospace;font-size:0.72rem;color:var(--muted);">' + esc(w.substring(0,10)) + '…' + esc(w.slice(-4)) + '</td>' +
+          '<td style="padding:6px 4px;">' + esc(e.userName || '') + '</td>' +
+          '<td style="padding:6px 4px;text-align:right;color:' + pnlColor + ';font-weight:600;">$' + pnl.toLocaleString(undefined, {maximumFractionDigits:0}) + '</td>' +
+          '<td style="padding:6px 4px;text-align:right;color:var(--muted);">$' + vol.toLocaleString(undefined, {maximumFractionDigits:0}) + '</td>' +
+          '<td style="padding:6px 4px;">' + esc(e._cat || '') + '</td>' +
+          '</tr>';
+      }).join('') + '</tbody></table>';
+  } catch (e) {
+    el.innerHTML = '<p style="color:var(--danger);font-size:0.8rem;">Failed: ' + esc(String(e)) + '</p>';
+  }
+};
+
+document.getElementById('btn_lb_import').onclick = async () => {
+  const cats = Array.from(document.querySelectorAll('#lb_categories input:checked')).map(cb => cb.value);
+  if (!cats.length) { toast('Select at least one category', 'error'); return; }
+  const tp = document.getElementById('lb_period').value;
+  const lim = Math.max(1, Math.min(50, Number(document.getElementById('lb_limit').value) || 10));
+  const minPnl = Number(document.getElementById('lb_min_pnl').value) || 0;
+  try {
+    const r = await api('/api/admin/leaderboard/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categories: cats, time_period: tp, limit_per_category: lim, min_pnl: minPnl, merge: true }),
+    });
+    const j = await r.json();
+    if (j.ok) {
+      toast('Imported ' + j.added + ' new wallets (total: ' + j.total + ')', 'success');
+      const el = document.getElementById('lb_results');
+      el.innerHTML = '<p style="color:var(--accent);font-size:0.8rem;font-weight:600;">✓ ' + j.added + ' new wallets added to watch list (total: ' + j.total + ')</p>' +
+        '<p style="color:var(--muted);font-size:0.75rem;margin-top:4px;">Click "Apply to bot" to start watching these wallets immediately.</p>';
+      await loadSettings();
+    } else {
+      toast('Import failed', 'error');
+    }
+  } catch (e) {
+    toast('Import error: ' + String(e), 'error');
   }
 };
 
