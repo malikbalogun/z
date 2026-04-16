@@ -27,6 +27,7 @@ from bot.orderbook import orderbook_buy_depth_ok
 from bot.risk import gate_intent
 from bot.settings import Settings, default_kv_seed
 from bot.settings_validation import validate_and_normalize_settings_patch
+from bot.leaderboard import discover_top_wallets, fetch_leaderboard, CATEGORIES, TIME_PERIODS
 from bot.wallet_trades import fetch_wallet_trades
 from bot.web.deps import get_current_user, get_db, require_admin, verify_user_password
 
@@ -927,4 +928,94 @@ async def admin_telemetry(
         "rolling_notional_window_usd": st.get("rolling_notional_window_usd"),
         "agents_fired": st.get("agents_fired", []),
         "errors": st.get("errors", []),
+    }
+
+
+@router.get("/api/admin/leaderboard")
+async def admin_leaderboard(
+    request: Request,
+    _: Annotated[User, Depends(require_admin)],
+    category: str = "OVERALL",
+    time_period: str = "MONTH",
+    limit: int = 25,
+):
+    bot = _trader(request)
+    http = getattr(bot, "_http", None) if bot else None
+    if http is None:
+        import httpx as _httpx
+        http = _httpx.AsyncClient(timeout=30.0)
+    try:
+        entries = await fetch_leaderboard(
+            http,
+            category=category,
+            time_period=time_period,
+            limit=limit,
+        )
+        return {"ok": True, "category": category.upper(), "time_period": time_period.upper(), "entries": entries}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+class LeaderboardImportBody(BaseModel):
+    categories: list[str] = Field(default=["OVERALL"])
+    time_period: str = Field(default="MONTH")
+    limit_per_category: int = Field(default=10, ge=1, le=50)
+    min_pnl: float = Field(default=0.0)
+    merge: bool = Field(default=True)
+
+
+@router.post("/api/admin/leaderboard/import")
+async def admin_leaderboard_import(
+    body: LeaderboardImportBody,
+    request: Request,
+    _: Annotated[User, Depends(require_admin)],
+):
+    """Discover top wallets from the Polymarket leaderboard and add them to copy_watch_wallets."""
+    bot = _trader(request)
+    http = getattr(bot, "_http", None) if bot else None
+    if http is None:
+        import httpx as _httpx
+        http = _httpx.AsyncClient(timeout=30.0)
+
+    discovered = await discover_top_wallets(
+        http,
+        categories=body.categories,
+        time_period=body.time_period,
+        limit_per_category=body.limit_per_category,
+        min_pnl=body.min_pnl,
+    )
+    new_wallets = [w["wallet"] for w in discovered]
+    if not new_wallets:
+        return {"ok": True, "added": 0, "total": 0, "wallets": []}
+
+    existing: list[str] = []
+    if body.merge:
+        kv = load_all_kv()
+        raw = kv.get("copy_watch_wallets", "[]")
+        try:
+            existing = json.loads(raw) if raw else []
+        except Exception:
+            existing = []
+        if not isinstance(existing, list):
+            existing = []
+
+    merged_set: dict[str, bool] = {}
+    for w in existing:
+        merged_set[w.lower().strip()] = True
+    added = 0
+    for w in new_wallets:
+        wl = w.lower().strip()
+        if wl not in merged_set:
+            merged_set[wl] = True
+            added += 1
+
+    final = list(merged_set.keys())
+    upsert_many_kv({"copy_watch_wallets": json.dumps(final)})
+
+    return {
+        "ok": True,
+        "added": added,
+        "total": len(final),
+        "wallets": final,
+        "discovered": discovered,
     }
