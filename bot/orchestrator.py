@@ -52,6 +52,7 @@ class TradingBot:
         self._market_cache: dict[str, dict] = {}
         self._http: Optional[httpx.AsyncClient] = None
 
+        self._initialized = False
         self._value_agent = ValueEdgeAgent(self.settings)
         self._copy_agent = CopySignalAgent(self.settings)
         self._latency_agent = LatencyArbAgent(self.settings)
@@ -100,6 +101,15 @@ class TradingBot:
         if self._http is None:
             self._http = httpx.AsyncClient(timeout=30.0)
         if not self.settings.polymarket_private_key:
+            if self.settings.dry_run:
+                log.info("DRY RUN: no POLYMARKET_PRIVATE_KEY — running without CLOB (Gamma scan + paper simulation)")
+                self.state.errors = [e for e in self.state.errors if e != "No POLYMARKET_PRIVATE_KEY"]
+                await self.refresh_balance()
+                await self.refresh_positions()
+                self.state.started_at = utc_now_iso()
+                self.state.running = True
+                self._initialized = True
+                return True
             self.state.errors.append("No POLYMARKET_PRIVATE_KEY")
             return False
         if not is_valid_private_key_hex(self.settings.polymarket_private_key):
@@ -136,6 +146,7 @@ class TradingBot:
         await self.refresh_positions()
         self.state.started_at = utc_now_iso()
         self.state.running = True
+        self._initialized = True
         return True
 
     async def refresh_balance(self):
@@ -389,7 +400,7 @@ class TradingBot:
         )
 
     async def _orderbook_gate_passes(self, intent: TradeIntent) -> bool:
-        if not self.clob or not self.settings.orderbook_gate_enabled or intent.side.upper() != "BUY":
+        if self.clob is None or not self.settings.orderbook_gate_enabled or intent.side.upper() != "BUY":
             return True
         share = float(self.settings.orderbook_min_bid_share)
         ok_book = await asyncio.to_thread(
@@ -491,7 +502,9 @@ class TradingBot:
             self.state.consecutive_exec_failures = int(self.state.consecutive_exec_failures or 0) + 1
 
     async def run_cycle(self):
-        if not self.clob or not self._http:
+        if not self._http:
+            return
+        if not self.clob and not self.settings.dry_run:
             return
 
         log.info("——— cycle start ———")
@@ -519,16 +532,16 @@ class TradingBot:
         pos_tokens = {p["token_id"] for p in self.state.positions}
 
         agent_tasks: list[tuple[str, asyncio.Task]] = []
-        if self.settings.agent_value:
+        if self.settings.agent_value and self.clob:
             agent_tasks.append(("value_edge", asyncio.ensure_future(
                 self._value_agent.propose(self.clob, markets, pos_tokens, self._rate_limit))))
-        if self.settings.agent_latency:
+        if self.settings.agent_latency and self.clob:
             agent_tasks.append(("latency_arb", asyncio.ensure_future(
                 self._latency_agent.propose(self.clob, markets, pos_tokens, self._rate_limit))))
-        if self.settings.agent_bundle:
+        if self.settings.agent_bundle and self.clob:
             agent_tasks.append(("bundle_arb", asyncio.ensure_future(
                 self._bundle_agent.propose(self.clob, markets, pos_tokens, self._rate_limit))))
-        if self.settings.agent_zscore:
+        if self.settings.agent_zscore and self.clob:
             agent_tasks.append(("zscore_edge", asyncio.ensure_future(
                 self._zscore_agent.propose(self.clob, markets, pos_tokens, self._rate_limit))))
         copy_scheduled = bool(self.settings.agent_copy and self.settings.copy_watch_wallets)
@@ -805,10 +818,9 @@ class TradingBot:
                 self.state.errors.append(f"reconcile:{e}")
 
     async def _execute_intent(self, intent: TradeIntent) -> bool:
-        assert self.clob is not None
         await self._rate_limit()
         try:
-            tick = float(self.clob.get_tick_size(intent.token_id))
+            tick = float(self.clob.get_tick_size(intent.token_id)) if self.clob else 0.01
         except Exception:
             tick = 0.01
         price = round(intent.max_price / tick) * tick
@@ -954,7 +966,7 @@ class TradingBot:
         self._running = True
         self.state.running = True
         while self._running:
-            if not self.clob:
+            if not self._initialized:
                 await self._reload_settings_async()
                 ok = await self.initialize()
                 if not ok:
