@@ -73,10 +73,17 @@ def agents_status(
         "bundle_arb": bool(getattr(settings, "agent_bundle", False)),
         "zscore_edge": bool(getattr(settings, "agent_zscore", False)),
     }
+    config_notes: dict[str, str] = {}
+    if getattr(settings, "agent_copy", False) and not getattr(settings, "copy_watch_wallets", []):
+        config_notes["copy_signal"] = (
+            "Copy agent needs agent_copy=true AND copy_watch_wallets populated. "
+            "First poll only seeds history (no replay burst)."
+        )
     rt = cycle_runtime or {}
     out = []
     for a in AGENTS:
         info = rt.get(a.id, {})
+        note = info.get("note", "") or config_notes.get(a.id, "")
         out.append(
             {
                 "id": a.id,
@@ -87,7 +94,7 @@ def agents_status(
                 "scheduled": info.get("scheduled", False),
                 "ran": info.get("ran", False),
                 "intents": info.get("intents", 0),
-                "note": info.get("note", ""),
+                "note": note,
             }
         )
     return out

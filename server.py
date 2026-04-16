@@ -81,6 +81,13 @@ async def get_state(user: User = Depends(get_current_user)):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@app.get("/api/errors")
+async def get_errors(user: User = Depends(get_current_user)):
+    if not trader:
+        return JSONResponse({"error": "Trader not initialized"}, status_code=503)
+    return {"errors": list(trader.state.errors)}
+
+
 @app.get("/api/positions")
 async def get_positions(user: User = Depends(get_current_user)):
     if not trader:

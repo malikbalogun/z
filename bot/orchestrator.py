@@ -100,6 +100,11 @@ class TradingBot:
         if self._http is None:
             self._http = httpx.AsyncClient(timeout=30.0)
         if not self.settings.polymarket_private_key:
+            if self.settings.dry_run:
+                log.warning("DRY RUN without CLOB keys — scanning + paper trades only (set keys in Admin for full agent coverage)")
+                self.state.started_at = utc_now_iso()
+                self.state.running = True
+                return True
             self.state.errors.append("No POLYMARKET_PRIVATE_KEY")
             return False
         if not is_valid_private_key_hex(self.settings.polymarket_private_key):
@@ -488,7 +493,9 @@ class TradingBot:
             self.state.consecutive_exec_failures = int(self.state.consecutive_exec_failures or 0) + 1
 
     async def run_cycle(self):
-        if not self.clob or not self._http:
+        if not self._http:
+            return
+        if not self.clob and not self.settings.dry_run:
             return
 
         log.info("——— cycle start ———")
@@ -508,7 +515,7 @@ class TradingBot:
         await self.refresh_positions()
 
         reserve = max(0.0, float(self.settings.balance_buffer_usd))
-        if self.state.usdc_balance < self.settings.min_bet_usd + reserve:
+        if self.clob and self.state.usdc_balance < self.settings.min_bet_usd + reserve:
             log.warning("Balance below min bet + buffer")
             return
 
@@ -516,16 +523,16 @@ class TradingBot:
         pos_tokens = {p["token_id"] for p in self.state.positions}
 
         agent_tasks: list[tuple[str, asyncio.Task]] = []
-        if self.settings.agent_value:
+        if self.settings.agent_value and self.clob:
             agent_tasks.append(("value_edge", asyncio.ensure_future(
                 self._value_agent.propose(self.clob, markets, pos_tokens, self._rate_limit))))
-        if self.settings.agent_latency:
+        if self.settings.agent_latency and self.clob:
             agent_tasks.append(("latency_arb", asyncio.ensure_future(
                 self._latency_agent.propose(self.clob, markets, pos_tokens, self._rate_limit))))
-        if self.settings.agent_bundle:
+        if self.settings.agent_bundle and self.clob:
             agent_tasks.append(("bundle_arb", asyncio.ensure_future(
                 self._bundle_agent.propose(self.clob, markets, pos_tokens, self._rate_limit))))
-        if self.settings.agent_zscore:
+        if self.settings.agent_zscore and self.clob:
             agent_tasks.append(("zscore_edge", asyncio.ensure_future(
                 self._zscore_agent.propose(self.clob, markets, pos_tokens, self._rate_limit))))
         copy_scheduled = bool(self.settings.agent_copy and self.settings.copy_watch_wallets)
@@ -541,6 +548,13 @@ class TradingBot:
         scheduled_ids = {aid for aid, _ in agent_tasks}
         for aid in ("value_edge", "latency_arb", "bundle_arb", "zscore_edge", "copy_signal"):
             runtime[aid] = {"scheduled": aid in scheduled_ids, "ran": False, "intents": 0, "note": ""}
+
+        if not self.clob:
+            for aid in ("value_edge", "latency_arb", "bundle_arb", "zscore_edge"):
+                flag = {"value_edge": "agent_value", "latency_arb": "agent_latency",
+                        "bundle_arb": "agent_bundle", "zscore_edge": "agent_zscore"}.get(aid, "")
+                if getattr(self.settings, flag, False) and aid not in scheduled_ids:
+                    runtime[aid]["note"] = "enabled but skipped — no CLOB keys (set polymarket_private_key in Admin)"
 
         for (aid, _task), r in zip(agent_tasks, results):
             if isinstance(r, Exception):
@@ -802,12 +816,16 @@ class TradingBot:
                 self.state.errors.append(f"reconcile:{e}")
 
     async def _execute_intent(self, intent: TradeIntent) -> bool:
-        assert self.clob is not None
+        if not self.settings.dry_run and self.clob is None:
+            self.state.errors.append("exec:no_clob_for_live_trade")
+            return False
         await self._rate_limit()
-        try:
-            tick = float(self.clob.get_tick_size(intent.token_id))
-        except Exception:
-            tick = 0.01
+        tick = 0.01
+        if self.clob:
+            try:
+                tick = float(self.clob.get_tick_size(intent.token_id))
+            except Exception:
+                tick = 0.01
         price = round(intent.max_price / tick) * tick
         price = round(min(max(price, tick), 1.0 - tick), 6)
         size_shares = round(intent.size_usd / price, 2)
@@ -950,13 +968,20 @@ class TradingBot:
     async def run_forever(self):
         self._running = True
         self.state.running = True
+        _initialized = False
         while self._running:
-            if not self.clob:
+            if not _initialized:
                 await self._reload_settings_async()
                 ok = await self.initialize()
                 if not ok:
                     log.info("Waiting for valid keys in database (Admin → settings)…")
                     await asyncio.sleep(12)
+                    continue
+                _initialized = True
+            elif not self.clob:
+                await self._reload_settings_async()
+                if self.settings.polymarket_private_key:
+                    _initialized = False
                     continue
             try:
                 await self.run_cycle()
