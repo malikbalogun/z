@@ -140,6 +140,9 @@ class TradingBot:
 
     async def refresh_balance(self):
         if not self.settings.wallet_address or not self._http:
+            if self.settings.dry_run and self.state.usdc_balance <= 0:
+                self.state.usdc_balance = self.settings.default_bet_usd * 100
+                log.info("DRY RUN: no wallet configured, using simulated balance $%.2f", self.state.usdc_balance)
             return
         payload = {
             "jsonrpc": "2.0",
