@@ -155,6 +155,7 @@ body {
 }
 .pill-on { background: rgba(61,255,156,0.2); color: var(--accent); }
 .pill-off { background: #2a2222; color: var(--muted); }
+.pill-warn { background: rgba(255,176,32,0.15); color: var(--warn); }
 .pill-armed { background: rgba(92,184,255,0.2); color: var(--info); }
 .pill-triggered { background: rgba(61,255,156,0.35); color: var(--accent); font-weight: 700; }
 
@@ -297,7 +298,10 @@ code { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; background: 
 </div>
 
 <div id="errorsBox" class="errors" style="display:none;">
-  <h3>Errors</h3>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+    <h3 style="margin-bottom:0;">Errors</h3>
+    <button type="button" class="btn" onclick="copyAllErrors()" style="font-size:0.7rem;padding:4px 10px;" title="Copy all errors to clipboard">Copy all</button>
+  </div>
   <ul id="errorsList"></ul>
 </div>
 
@@ -379,10 +383,15 @@ function renderAgents(detail) {
     const intents = a.intents || 0;
     const note = a.note || '';
 
+    const needsConfig = on && note && (note.includes('no wallets configured') || note.includes('needs config'));
+
     let statusPill, statusClass;
     if (!on) {
       statusPill = 'OFF';
       statusClass = 'pill-off';
+    } else if (needsConfig) {
+      statusPill = 'NEEDS CONFIG';
+      statusClass = 'pill-warn';
     } else if (ran && intents > 0) {
       statusPill = `TRIGGERED (${intents})`;
       statusClass = 'pill-triggered';
@@ -634,6 +643,34 @@ function renderCycleDecisions(d) {
   }
 
   el.innerHTML = html;
+}
+
+async function copyAllErrors() {
+  try {
+    const resp = await fetch('/api/errors', { credentials: 'include' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    const errs = data.errors || [];
+    if (!errs.length) { alert('No errors to copy.'); return; }
+    const text = errs.join('\n');
+    await navigator.clipboard.writeText(text);
+    const btn = document.querySelector('#errorsBox .btn');
+    if (btn) { const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = orig, 1500); }
+  } catch (e) {
+    const el = document.getElementById('errorsList');
+    if (el) {
+      const items = Array.from(el.querySelectorAll('li'));
+      const text = items.map(li => li.textContent).join('\n');
+      try { await navigator.clipboard.writeText(text); } catch (_) {
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px;';
+        document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      const btn = document.querySelector('#errorsBox .btn');
+      if (btn) { const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = orig, 1500); }
+    }
+  }
 }
 
 fetchState();
