@@ -389,12 +389,12 @@ code { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; background: 
 
   <div class="nav-section">
     <div class="nav-label">Monitor</div>
-    <a class="nav-item active" onclick="scrollTo('#sectionCycle')">Cycle &amp; agents</a>
-    <a class="nav-item" onclick="scrollTo('#sectionIntents')">Intents &amp; decisions</a>
-    <a class="nav-item" onclick="scrollTo('#sectionOrders')">Working orders</a>
-    <a class="nav-item" onclick="scrollTo('#sectionPositions')">Positions</a>
-    <a class="nav-item" onclick="scrollTo('#sectionTrades')">Trade history</a>
-    <a class="nav-item" onclick="scrollTo('#sectionCex')">CEX data</a>
+    <a class="nav-item active" onclick="navScrollTo('#sectionCycle')">Cycle &amp; agents</a>
+    <a class="nav-item" onclick="navScrollTo('#sectionIntents')">Intents &amp; decisions</a>
+    <a class="nav-item" onclick="navScrollTo('#sectionOrders')">Working orders</a>
+    <a class="nav-item" onclick="navScrollTo('#sectionPositions')">Positions</a>
+    <a class="nav-item" onclick="navScrollTo('#sectionTrades')">Trade history</a>
+    <a class="nav-item" onclick="navScrollTo('#sectionCex')">CEX data</a>
   </div>
 
   <div class="nav-section">
@@ -490,9 +490,16 @@ code { font-family: 'IBM Plex Mono', monospace; font-size: 0.68rem; background: 
 </div>
 
 <script>
-function scrollTo(sel) {
+function navScrollTo(sel) {
   const el = document.querySelector(sel);
-  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (!el) return;
+  const container = document.querySelector('.main');
+  if (container) {
+    const top = el.offsetTop - container.offsetTop;
+    container.scrollTo({ top: top, behavior: 'smooth' });
+  } else {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 }
 function authHeaders() {
   const t = localStorage.getItem('DASHBOARD_TOKEN');

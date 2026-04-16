@@ -37,7 +37,7 @@ def _simulate_paper_fill(
         from bot.paper_realism import simulate_paper_fill
         result = simulate_paper_fill(
             limit_price=price,
-            observed_price=price * 0.97,
+            observed_price=price * 0.99,
             size_usd=price * size,
             slippage_model_bps=slippage_model_bps,
             latency_ms=latency_ms,
