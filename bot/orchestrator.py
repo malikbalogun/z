@@ -18,6 +18,7 @@ from bot.agents.registry import agents_status
 from bot.agents.value_edge import ValueEdgeAgent
 from bot.agents.zscore_edge import ZScoreEdgeAgent
 from bot.copy_manager import CopyManager
+from bot.paper_portfolio import PaperPortfolio
 from bot.categories import MarketCategory
 from bot.cex import fetch_cex_bundle, infer_crypto_asset_from_text
 from bot.execution import place_limit_gtd_then_wait, place_market_fok_fallback
@@ -59,6 +60,7 @@ class TradingBot:
         self._bundle_agent = BundleArbAgent(self.settings)
         self._zscore_agent = ZScoreEdgeAgent(self.settings)
         self._copy_manager = CopyManager(self.settings)
+        self._paper_portfolio = PaperPortfolio()
 
         w = self.settings.wallet_address
         log.info(
@@ -800,6 +802,17 @@ class TradingBot:
                     placed += 1
 
         self.state.last_skipped_intents = skipped[:30]
+
+        if self.settings.dry_run and self._paper_portfolio.get_positions():
+            try:
+                await self._paper_portfolio.refresh_prices(self._http, self.clob)
+            except Exception as e:
+                log.debug("paper price refresh: %s", e)
+            paper = self._paper_portfolio.get_summary()
+            self.state.positions = self._paper_portfolio.get_positions()
+            self.state.portfolio_value = paper["portfolio_value"]
+            self.state.total_pnl = paper["unrealized_pnl"]
+
         self.state.errors = self.state.errors[-25:]
         log.info("——— cycle end placed=%s ———", placed)
         slog(
@@ -918,6 +931,7 @@ class TradingBot:
             elif str(note2).startswith("market_fok_failed"):
                 self.state.errors.append(f"market_fallback:{note2}")
 
+        ts = utc_now_iso()
         rec = TradeRecord(
             order_id=oid or "none",
             market_question=intent.question,
@@ -928,12 +942,26 @@ class TradingBot:
             size=size_shares,
             cost_usd=round(price * size_shares, 2),
             status=status,
-            timestamp=utc_now_iso(),
+            timestamp=ts,
             outcome=intent.outcome,
             strategy=f"{intent.strategy}:{note}",
         )
         self.state.trade_history.append(rec)
         self.state.trades_placed += 1
+
+        if self.settings.dry_run and status in ("dry_run", "dry_run_filled"):
+            self._paper_portfolio.record_fill(
+                token_id=intent.token_id,
+                condition_id=intent.condition_id,
+                market=intent.question,
+                outcome=intent.outcome,
+                side=intent.side,
+                price=price,
+                shares=size_shares,
+                cost_usd=round(price * size_shares, 2),
+                timestamp=ts,
+                strategy=intent.strategy,
+            )
         self.state.last_trade = rec.timestamp
         log.info("Executed %s -> %s %s", intent.strategy, oid, note)
         slog(
@@ -1077,4 +1105,5 @@ class TradingBot:
             "last_skipped_intents": self.state.last_skipped_intents[:20],
             "copy_manager": self._copy_manager.get_summary(),
             "copy_managed_wallets": self._copy_manager.get_managed_wallets()[:50],
+            "paper_portfolio": self._paper_portfolio.get_summary() if self.settings.dry_run else {},
         }

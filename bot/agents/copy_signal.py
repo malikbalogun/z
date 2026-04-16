@@ -45,7 +45,10 @@ class CopySignalAgent:
         candidates_seen_dup = 0
         candidates_cold_skipped = 0
         candidates_filter_rejected = 0
+        candidates_market_capped = 0
         api_errors = 0
+        cycle_markets: dict[str, int] = {}
+        max_per_market = 2
 
         for wallet in self.settings.copy_watch_wallets:
             try:
@@ -99,6 +102,11 @@ class CopySignalAgent:
                 if not ok:
                     candidates_filter_rejected += 1
                     continue
+                market_key = c.token_id
+                cycle_markets[market_key] = cycle_markets.get(market_key, 0) + 1
+                if cycle_markets[market_key] > max_per_market:
+                    candidates_market_capped += 1
+                    continue
                 max_px = limit_price_with_buffer(self.settings, c.price)
                 usdc = max(self.settings.min_bet_usd, min(self.settings.max_bet_usd, c.usdc))
                 cond = str(entry.get("conditionId") or entry.get("condition_id") or "")
@@ -146,6 +154,8 @@ class CopySignalAgent:
             parts_list.append(f"dup={candidates_seen_dup}")
         if candidates_filter_rejected:
             parts_list.append(f"filtered={candidates_filter_rejected}")
+        if candidates_market_capped:
+            parts_list.append(f"mkt_cap={candidates_market_capped}")
         if api_errors:
             parts_list.append(f"api_err={api_errors}")
         parts_list.append(f"new={len(intents)}")
