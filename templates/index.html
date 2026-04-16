@@ -545,6 +545,17 @@ function renderDiagBanners(d) {
     });
   }
 
+  if (d.dry_run && pp.total_invested > 0) {
+    const pnlSign = pp.unrealized_pnl >= 0 ? '+' : '';
+    banners.push({
+      cls: pp.unrealized_pnl >= 0 ? 'diag-ok' : 'diag-warn',
+      icon: pp.unrealized_pnl >= 0 ? '&#9650;' : '&#9660;',
+      title: 'Paper P&L: ' + pnlSign + '$' + pp.unrealized_pnl.toFixed(2) + ' (' + pnlSign + pp.unrealized_pnl_pct.toFixed(1) + '%)',
+      detail: pp.positions_count + ' positions &bull; $' + pp.total_invested.toFixed(2) + ' invested &bull; ' + pp.winners + 'W/' + pp.losers + 'L (' + pp.win_rate.toFixed(0) + '% win rate)',
+      right: 'Portfolio: $' + pp.portfolio_value.toFixed(2)
+    });
+  }
+
   const detail = d.agents_detail || [];
   const noConfigAgents = detail.filter(a => a.enabled && a.note && (a.note.includes('no wallets') || a.note.includes('needs config') || a.note.includes('no CLOB keys')));
   if (noConfigAgents.length) {
@@ -709,16 +720,32 @@ function updateUI(d) {
   // Diagnostic banners
   renderDiagBanners(d);
 
-  // Cycle strip
-  document.getElementById('balance').textContent = '$' + (d.usdc_balance || 0).toFixed(2);
-  document.getElementById('portfolio').textContent = '$' + (d.portfolio_value || 0).toFixed(2);
-  const pnlEl = document.getElementById('pnl');
-  const pnl = d.total_pnl || 0;
-  pnlEl.textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
-  pnlEl.className = 'cs-value mono ' + (pnl >= 0 ? '' : 'red');
+  // Cycle strip — paper portfolio aware
+  const pp = d.paper_portfolio || {};
+  const isDry = d.dry_run;
+  if (isDry && pp.total_invested > 0) {
+    document.getElementById('balance').textContent = '$' + (pp.paper_balance || 0).toFixed(2);
+    document.getElementById('portfolio').textContent = '$' + (pp.portfolio_value || 0).toFixed(2);
+    const pnlEl = document.getElementById('pnl');
+    const pnl = pp.unrealized_pnl || 0;
+    pnlEl.textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
+    pnlEl.className = 'cs-value mono ' + (pnl >= 0 ? '' : 'red');
+  } else {
+    document.getElementById('balance').textContent = '$' + (d.usdc_balance || 0).toFixed(2);
+    document.getElementById('portfolio').textContent = '$' + (d.portfolio_value || 0).toFixed(2);
+    const pnlEl = document.getElementById('pnl');
+    const pnl = d.total_pnl || 0;
+    pnlEl.textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
+    pnlEl.className = 'cs-value mono ' + (pnl >= 0 ? '' : 'red');
+  }
 
   document.getElementById('trades').textContent = d.trades_placed || 0;
-  document.getElementById('lastTrade').textContent = d.last_trade ? timeAgo(d.last_trade) : '\u2014';
+  const tradesFilledEl = document.getElementById('lastTrade');
+  if (isDry && pp.positions_count > 0) {
+    tradesFilledEl.textContent = pp.winners + 'W / ' + pp.losers + 'L (' + pp.win_rate + '%)';
+  } else {
+    tradesFilledEl.textContent = d.last_trade ? timeAgo(d.last_trade) : '\u2014';
+  }
   document.getElementById('scanned').textContent = d.markets_scanned || 0;
   document.getElementById('lastScan').textContent = d.last_scan ? timeAgo(d.last_scan) : '\u2014';
   document.getElementById('betSize').textContent = '$' + (d.default_bet || 5).toFixed(0);
@@ -783,15 +810,20 @@ function updateUI(d) {
   const pb = document.getElementById('positionsBody');
   const pos = d.positions || [];
   if (!pos.length) pb.innerHTML = '<tr><td colspan="7" class="gray">No open positions</td></tr>';
-  else pb.innerHTML = pos.map(p => '<tr>' +
-    '<td>' + escHtml((p.market||'').substring(0,48)) + '</td>' +
+  else pb.innerHTML = pos.map(p => {
+    const isPaper = p.paper;
+    const pnlPct = p.pnl_pct || 0;
+    const pnlColor = (p.pnl||0) >= 0 ? 'green' : 'red';
+    return '<tr' + (isPaper ? ' style="opacity:0.9;"' : '') + '>' +
+    '<td>' + escHtml((p.market||'').substring(0,48)) + (isPaper ? ' <span style="font-size:0.6rem;color:var(--warn);font-weight:600;">PAPER</span>' : '') + '</td>' +
     '<td>' + escHtml(p.outcome||'\u2014') + '</td>' +
     '<td class="mono">' + (p.size||0).toFixed(2) + '</td>' +
     '<td class="mono">$' + (p.avg_price||0).toFixed(4) + '</td>' +
     '<td class="mono">$' + (p.current_price||0).toFixed(4) + '</td>' +
     '<td class="mono">$' + (p.value||0).toFixed(2) + '</td>' +
-    '<td class="mono ' + ((p.pnl||0)>=0?'green':'red') + '">' + ((p.pnl||0)>=0?'+':'') + '$' + (p.pnl||0).toFixed(2) + '</td>' +
-  '</tr>').join('');
+    '<td class="mono ' + pnlColor + '">' + ((p.pnl||0)>=0?'+':'') + '$' + (p.pnl||0).toFixed(2) + ' <span style="font-size:0.65rem;">(' + ((pnlPct>=0)?'+':'') + pnlPct.toFixed(1) + '%)</span></td>' +
+    '</tr>';
+  }).join('');
 
   // Trade history table
   const tb = document.getElementById('tradesBody');
