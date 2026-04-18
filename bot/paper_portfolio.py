@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+import json
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
@@ -15,6 +16,49 @@ from bot.clob_utils import parse_midpoint
 log = logging.getLogger("polymarket.paper_portfolio")
 
 GAMMA_URL = "https://gamma-api.polymarket.com/markets"
+
+
+def _parse_json_array_maybe(raw: Any, fallback: list[Any]) -> list[Any]:
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return parsed
+        except Exception:
+            return fallback
+    return fallback
+
+
+def _best_price_for_outcome(market_row: dict[str, Any], token_id: str, outcome: str) -> Optional[float]:
+    """Return best mapped outcome price from Gamma market payload."""
+    prices = _parse_json_array_maybe(
+        market_row.get("outcomePrices", market_row.get("outcome_prices", [])),
+        [],
+    )
+    outcomes = _parse_json_array_maybe(market_row.get("outcomes", []), [])
+    token_ids = _parse_json_array_maybe(
+        market_row.get("clobTokenIds", market_row.get("clob_token_ids", [])),
+        [],
+    )
+
+    idx = -1
+    if token_id and token_id in token_ids:
+        idx = token_ids.index(token_id)
+    elif outcome and outcomes:
+        outcome_norm = str(outcome).strip().lower()
+        for i, name in enumerate(outcomes):
+            if str(name).strip().lower() == outcome_norm:
+                idx = i
+                break
+
+    if idx < 0 or idx >= len(prices):
+        return None
+    try:
+        return float(prices[idx])
+    except (TypeError, ValueError):
+        return None
 
 
 @dataclass
@@ -63,7 +107,6 @@ class PaperPortfolio:
         key = token_id
         if key in self._positions:
             pos = self._positions[key]
-            old_total = pos.avg_price * pos.shares
             pos.shares += shares
             pos.total_cost += cost_usd
             pos.avg_price = pos.total_cost / pos.shares if pos.shares > 0 else price
@@ -113,23 +156,9 @@ class PaperPortfolio:
                 )
                 if isinstance(data, list) and data:
                     m = data[0]
-                    prices = m.get("outcomePrices", m.get("outcome_prices", ""))
-                    if isinstance(prices, str):
-                        import json
-                        try:
-                            prices = json.loads(prices)
-                        except Exception:
-                            prices = []
-                    if isinstance(prices, list) and len(prices) >= 2:
-                        outcome_lower = pos.outcome.lower()
-                        if outcome_lower in ("yes", "1", "0"):
-                            idx = 0 if outcome_lower in ("yes", "0") else 1
-                        else:
-                            idx = 0
-                        try:
-                            pos.current_price = float(prices[idx])
-                        except (ValueError, IndexError):
-                            pass
+                    px = _best_price_for_outcome(m, pos.token_id, pos.outcome)
+                    if px is not None:
+                        pos.current_price = px
             except Exception as e:
                 log.debug("price refresh for %s: %s", pos.token_id[:12], e)
 

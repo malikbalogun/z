@@ -90,7 +90,7 @@ class TradingBot:
         self._latency_agent.settings = self.settings
         self._bundle_agent.settings = self.settings
         self._zscore_agent.settings = self.settings
-        self._copy_manager.settings = self.settings
+        self._copy_manager.sync_settings(self.settings)
 
     async def _rate_limit(self):
         gap = 0.35
@@ -508,7 +508,6 @@ class TradingBot:
             return
         if not self.clob and not self.settings.dry_run:
             return
-
         log.info("——— cycle start ———")
         await self._reload_settings_async()
         slog(

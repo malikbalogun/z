@@ -671,6 +671,45 @@ async def _intents_preview_core(bot: Any, agent: str, limit: int) -> dict[str, A
     await bot._reload_settings_async()
     await bot.refresh_positions()
     await bot.refresh_open_orders()
+    if not bot.clob:
+        # In dry-run without keys, only copy agent can propose intents.
+        if agent in ("all", "copy_signal") and bot.settings.agent_copy and bot.settings.copy_watch_wallets:
+            copy_intents = await bot._copy_agent.propose(bot._http)
+            lim = max(1, min(int(limit or 80), 250))
+            out = [
+                {
+                    "agent": it.agent,
+                    "strategy": it.strategy,
+                    "question": it.question[:140],
+                    "token_id": it.token_id,
+                    "category": it.category.value,
+                    "usd": round(float(it.size_usd), 4),
+                    "max_price": it.max_price,
+                    "pass": True,
+                    "reason": "ok",
+                    "cex_dispersion_bps": None,
+                    "bundle_id": it.bundle_id,
+                }
+                for it in sorted(copy_intents, key=lambda x: -x.priority)[:lim]
+            ]
+            return {
+                "ok": True,
+                "agent": agent,
+                "enabled_agents": ["copy_signal"],
+                "errors": [],
+                "count": len(out),
+                "items": out,
+                "note": "preview in dry-run without CLOB keys; only copy agent available",
+            }
+        return {
+            "ok": True,
+            "agent": agent,
+            "enabled_agents": [],
+            "errors": [],
+            "count": 0,
+            "items": [],
+            "note": "preview unavailable without CLOB keys for selected agents",
+        }
     markets = await bot._gamma_scan()
     pos_tokens = {p.get("token_id") for p in bot.state.positions if p.get("token_id")}
 
@@ -799,7 +838,7 @@ async def admin_intents_preview(
     agent: all|value_edge|copy_signal|latency_arb|bundle_arb|zscore_edge
     """
     bot = _trader(request)
-    if not bot or not getattr(bot, "clob", None) or not getattr(bot, "_http", None):
+    if not bot or not getattr(bot, "_http", None):
         raise HTTPException(status_code=503, detail="Trader not initialized")
     return await _intents_preview_core(bot, agent, limit)
 
@@ -872,7 +911,7 @@ async def hook_intents_preview(
 ):
     _require_webhook_token(x_hook_token)
     bot = _trader(request)
-    if not bot or not getattr(bot, "clob", None) or not getattr(bot, "_http", None):
+    if not bot or not getattr(bot, "_http", None):
         raise HTTPException(status_code=503, detail="Trader not initialized")
     return await _intents_preview_core(bot, agent, limit)
 

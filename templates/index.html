@@ -521,10 +521,10 @@ async function fetchState() {
 
 function renderDiagBanners(d) {
   const st = d.settings || {};
+  const pp = d.paper_portfolio || {};
   const banners = [];
 
   if (d.dry_run) {
-    const hasKeys = st.agent_value !== undefined;
     const noClob = !d.wallet;
     banners.push({
       cls: 'diag-warn',
@@ -889,32 +889,6 @@ async function forceReconcile() {
     if (!r.ok) console.warn('reconcile', j);
   } catch (e) { console.warn(e); }
   fetchState();
-}
-
-async function copyAllErrors() {
-  try {
-    const resp = await fetch('/api/errors', { credentials: 'include' });
-    if (resp.ok) {
-      const data = await resp.json();
-      const errs = data.errors || [];
-      if (!errs.length) { alert('No errors to copy.'); return; }
-      await navigator.clipboard.writeText(errs.join('\n'));
-    } else {
-      const items = Array.from(document.querySelectorAll('#errorsList li'));
-      await navigator.clipboard.writeText(items.map(li => li.textContent).join('\n'));
-    }
-    const btn = document.querySelector('#errorsBox .btn');
-    if (btn) { const o = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = o, 1500); }
-  } catch (e) {
-    const items = Array.from(document.querySelectorAll('#errorsList li'));
-    const text = items.map(li => li.textContent).join('\n');
-    const ta = document.createElement('textarea');
-    ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px;';
-    document.body.appendChild(ta); ta.select(); document.execCommand('copy');
-    document.body.removeChild(ta);
-    const btn = document.querySelector('#errorsBox .btn');
-    if (btn) { const o = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = o, 1500); }
-  }
 }
 
 async function copyAllErrors() {
