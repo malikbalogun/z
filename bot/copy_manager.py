@@ -18,7 +18,7 @@ from typing import Any
 
 import httpx
 
-from bot.db.kv import load_all_kv, upsert_many_kv
+from bot.db.kv import upsert_many_kv
 from bot.leaderboard import (
     analyze_wallet_quality,
     discover_qualified_wallets,
@@ -67,6 +67,27 @@ class CopyManager:
         self.settings = settings
         self.state = CopyManagerState()
         self._http: httpx.AsyncClient | None = None
+        self._seed_manual_wallets()
+
+    def _seed_manual_wallets(self) -> None:
+        """Seed configured wallets as manual so auto-manage cannot wipe them."""
+        for wallet in list(getattr(self.settings, "copy_watch_wallets", []) or []):
+            w = str(wallet).strip().lower()
+            if not w:
+                continue
+            if w in self.state.wallet_stats:
+                continue
+            self.state.wallet_stats[w] = WalletStats(
+                wallet=w,
+                added_at=time.time(),
+                last_checked=0.0,
+                status="manual",
+            )
+
+    def sync_settings(self, settings: Any) -> None:
+        """Apply reloaded settings and keep manual wallets pinned."""
+        self.settings = settings
+        self._seed_manual_wallets()
 
     def _refresh_interval(self) -> float:
         return float(getattr(self.settings, "copy_refresh_interval_hours", 6.0) or 6.0) * 3600
@@ -100,6 +121,7 @@ class CopyManager:
     async def refresh(self, http: httpx.AsyncClient) -> dict[str, Any]:
         """Full refresh cycle: discover new wallets + prune underperformers."""
         self._http = http
+        self._seed_manual_wallets()
         result: dict[str, Any] = {"added": 0, "pruned": 0, "checked": 0, "active": 0}
 
         try:
@@ -226,8 +248,12 @@ class CopyManager:
 
     def _persist_wallets(self) -> None:
         """Write the active wallet list back to copy_watch_wallets in DB."""
-        active = [w for w, st in self.state.wallet_stats.items() if st.status == "active"]
-        upsert_many_kv({"copy_watch_wallets": json.dumps(active)})
+        watch = [
+            w
+            for w, st in self.state.wallet_stats.items()
+            if st.status in {"active", "manual"}
+        ]
+        upsert_many_kv({"copy_watch_wallets": json.dumps(watch)})
 
     def get_managed_wallets(self) -> list[dict[str, Any]]:
         """Return all tracked wallets with their stats for the dashboard."""
@@ -254,9 +280,11 @@ class CopyManager:
     def get_summary(self) -> dict[str, Any]:
         stats = self.state.wallet_stats
         active = sum(1 for s in stats.values() if s.status == "active")
+        manual = sum(1 for s in stats.values() if s.status == "manual")
         pruned = sum(1 for s in stats.values() if s.status == "pruned")
         return {
             "active_wallets": active,
+            "manual_wallets": manual,
             "pruned_wallets": pruned,
             "total_tracked": len(stats),
             "refresh_count": self.state.refresh_count,

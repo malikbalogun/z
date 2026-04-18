@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 import unittest
+from unittest.mock import patch
 
 from bot.agents.registry import agents_status
 from bot.execution import _simulate_paper_fill
 from bot.models import BotState
 from bot.settings import Settings, default_kv_seed
 from bot.settings_validation import validate_and_normalize_settings_patch
+from bot.copy_manager import CopyManager, WalletStats
+from bot.paper_portfolio import _best_price_for_outcome
 
 
 class TestModeSyncsWithDryRun(unittest.TestCase):
@@ -360,6 +363,45 @@ class TestBotStateCycleRuntime(unittest.TestCase):
             "value_edge": {"scheduled": True, "ran": True, "intents": 2, "note": ""},
         }
         self.assertEqual(state.cycle_agent_runtime["value_edge"]["intents"], 2)
+
+
+class TestCopyManagerPersistence(unittest.TestCase):
+    def test_manual_wallets_are_seeded_and_preserved(self):
+        wallet = "0x" + "ab" * 20
+        s = Settings(copy_watch_wallets=[wallet])
+        mgr = CopyManager(s)
+        self.assertIn(wallet, mgr.state.wallet_stats)
+        self.assertEqual(mgr.state.wallet_stats[wallet].status, "manual")
+
+    def test_persist_keeps_manual_plus_active_wallets(self):
+        manual = "0x" + "ab" * 20
+        active = "0x" + "cd" * 20
+        s = Settings(copy_watch_wallets=[manual])
+        mgr = CopyManager(s)
+        mgr.state.wallet_stats[active] = WalletStats(wallet=active, status="active")
+        with patch("bot.copy_manager.upsert_many_kv") as upsert:
+            mgr._persist_wallets()
+        payload = upsert.call_args.args[0]
+        saved = json.loads(payload["copy_watch_wallets"])
+        self.assertIn(manual, saved)
+        self.assertIn(active, saved)
+
+
+class TestPaperPortfolioPriceMapping(unittest.TestCase):
+    def test_best_price_uses_token_id_mapping(self):
+        market = {
+            "clobTokenIds": json.dumps(["tok_yes", "tok_no"]),
+            "outcomePrices": json.dumps(["0.61", "0.39"]),
+            "outcomes": json.dumps(["Yes", "No"]),
+        }
+        self.assertAlmostEqual(_best_price_for_outcome(market, "tok_no", "Yes"), 0.39)
+
+    def test_best_price_falls_back_to_outcome_name(self):
+        market = {
+            "outcomePrices": ["0.44", "0.56"],
+            "outcomes": ["Yes", "No"],
+        }
+        self.assertAlmostEqual(_best_price_for_outcome(market, "", "No"), 0.56)
 
 
 class TestSettingsLoadFallback(unittest.TestCase):
