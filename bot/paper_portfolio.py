@@ -17,6 +17,31 @@ log = logging.getLogger("polymarket.paper_portfolio")
 GAMMA_URL = "https://gamma-api.polymarket.com/markets"
 
 
+def _match_outcome_index(outcome: str, outcomes: list) -> Optional[int]:
+    """Match an outcome string to its index in the outcomes list, tolerant of case
+    and common aliases. Returns None when no clear match exists."""
+    if not outcomes:
+        return None
+    target = (outcome or "").strip().lower()
+    names = [str(o or "").strip().lower() for o in outcomes]
+    if not target:
+        return None
+    if target in names:
+        return names.index(target)
+    # Binary Yes/No aliases
+    if len(names) == 2 and set(names) == {"yes", "no"}:
+        if target in ("yes", "true", "y", "1"):
+            return names.index("yes")
+        if target in ("no", "false", "n", "0"):
+            return names.index("no")
+    # Numeric index fallback (e.g. "0"/"1")
+    if target.isdigit():
+        i = int(target)
+        if 0 <= i < len(names):
+            return i
+    return None
+
+
 @dataclass
 class PaperPosition:
     """A simulated position from paper trades."""
@@ -106,30 +131,39 @@ class PaperPortfolio:
                 except Exception:
                     pass
             try:
+                if not pos.condition_id:
+                    continue
                 data = await get_json_retry(
                     http,
                     GAMMA_URL,
                     params={"condition_id": pos.condition_id, "limit": "1"},
                 )
-                if isinstance(data, list) and data:
-                    m = data[0]
-                    prices = m.get("outcomePrices", m.get("outcome_prices", ""))
-                    if isinstance(prices, str):
-                        import json
-                        try:
-                            prices = json.loads(prices)
-                        except Exception:
-                            prices = []
-                    if isinstance(prices, list) and len(prices) >= 2:
-                        outcome_lower = pos.outcome.lower()
-                        if outcome_lower in ("yes", "1", "0"):
-                            idx = 0 if outcome_lower in ("yes", "0") else 1
-                        else:
-                            idx = 0
-                        try:
-                            pos.current_price = float(prices[idx])
-                        except (ValueError, IndexError):
-                            pass
+                if not (isinstance(data, list) and data):
+                    continue
+                m = data[0]
+                prices = m.get("outcomePrices", m.get("outcome_prices", ""))
+                outcomes = m.get("outcomes", "")
+                if isinstance(prices, str):
+                    import json
+                    try:
+                        prices = json.loads(prices)
+                    except Exception:
+                        prices = []
+                if isinstance(outcomes, str):
+                    import json
+                    try:
+                        outcomes = json.loads(outcomes)
+                    except Exception:
+                        outcomes = []
+                if not (isinstance(prices, list) and isinstance(outcomes, list) and len(prices) == len(outcomes) and len(prices) >= 1):
+                    continue
+                idx = _match_outcome_index(pos.outcome, outcomes)
+                if idx is None or idx >= len(prices):
+                    continue
+                try:
+                    pos.current_price = float(prices[idx])
+                except (ValueError, TypeError):
+                    pass
             except Exception as e:
                 log.debug("price refresh for %s: %s", pos.token_id[:12], e)
 

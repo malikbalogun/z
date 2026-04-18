@@ -103,6 +103,9 @@ class CopyManager:
         result: dict[str, Any] = {"added": 0, "pruned": 0, "checked": 0, "active": 0}
 
         try:
+            # 0. Import any externally-set (manual) wallets so we don't overwrite them
+            self._ingest_external_wallets()
+
             # 1. Discover new qualified wallets from all leaderboard categories
             new_count = await self._discover_and_add(http)
             result["added"] = new_count
@@ -190,13 +193,29 @@ class CopyManager:
         return added
 
     async def _check_and_prune(self, http: httpx.AsyncClient) -> int:
-        """Re-check all active wallets and prune those below threshold."""
+        """Re-check all active wallets and prune those below threshold.
+        Skips wallets that were freshly analyzed during _discover_and_add in this cycle
+        (their stats were already refreshed in the same refresh call)."""
         prune_threshold = self._prune_below_win_rate()
         min_trades = self._min_total_trades()
         pruned = 0
+        now = time.time()
+        skip_if_checked_within_s = max(60.0, 0.9 * self._refresh_interval())
 
         for w, st in list(self.state.wallet_stats.items()):
             if st.status != "active":
+                continue
+
+            if st.last_checked and (now - st.last_checked) < skip_if_checked_within_s:
+                # Already analyzed recently (likely via _discover_and_add). Re-use stats.
+                total = int(st.wins + st.losses)
+                if total >= min_trades and st.win_rate < prune_threshold:
+                    st.status = "pruned"
+                    pruned += 1
+                    log.info(
+                        "CopyManager PRUNED %s (cached): WR=%.0f%% < %.0f%% threshold",
+                        w[:12], st.win_rate * 100, prune_threshold * 100,
+                    )
                 continue
 
             try:
@@ -224,10 +243,39 @@ class CopyManager:
         self.state.total_pruned += pruned
         return pruned
 
+    def _ingest_external_wallets(self) -> None:
+        """Pick up any wallets added externally (e.g. by Admin UI) so auto-refresh
+        does not silently drop them when rewriting copy_watch_wallets."""
+        try:
+            kv = load_all_kv()
+            raw = kv.get("copy_watch_wallets", "[]") or "[]"
+            existing = json.loads(raw) if isinstance(raw, str) else raw
+        except Exception:
+            existing = []
+        if not isinstance(existing, list):
+            return
+        for w in existing:
+            wl = str(w or "").strip().lower()
+            if not wl or not wl.startswith("0x") or len(wl) != 42:
+                continue
+            if wl in self.state.wallet_stats:
+                continue
+            # Track it so it is not dropped on the next _persist_wallets() call.
+            self.state.wallet_stats[wl] = WalletStats(
+                wallet=wl,
+                added_at=time.time(),
+                last_checked=0.0,
+                status="manual",
+            )
+
     def _persist_wallets(self) -> None:
-        """Write the active wallet list back to copy_watch_wallets in DB."""
-        active = [w for w, st in self.state.wallet_stats.items() if st.status == "active"]
-        upsert_many_kv({"copy_watch_wallets": json.dumps(active)})
+        """Write the active wallet list back to copy_watch_wallets in DB.
+        'manual' entries are preserved so user-curated wallets are never dropped."""
+        keep = [
+            w for w, st in self.state.wallet_stats.items()
+            if st.status in ("active", "manual")
+        ]
+        upsert_many_kv({"copy_watch_wallets": json.dumps(keep)})
 
     def get_managed_wallets(self) -> list[dict[str, Any]]:
         """Return all tracked wallets with their stats for the dashboard."""

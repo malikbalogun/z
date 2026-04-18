@@ -521,6 +521,7 @@ async function fetchState() {
 
 function renderDiagBanners(d) {
   const st = d.settings || {};
+  const pp = d.paper_portfolio || {};
   const banners = [];
 
   if (d.dry_run) {
