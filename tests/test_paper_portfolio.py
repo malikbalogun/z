@@ -1,34 +1,47 @@
-"""Tests for the paper portfolio outcome index mapping and basic accounting."""
+"""Tests for the paper portfolio outcome matching and basic accounting."""
 
 from __future__ import annotations
 
+import json
 import unittest
 
-from bot.paper_portfolio import PaperPortfolio, _match_outcome_index
+from bot.paper_portfolio import PaperPortfolio, _best_price_for_outcome
 
 
-class TestMatchOutcomeIndex(unittest.TestCase):
-    def test_exact_case_insensitive(self):
-        self.assertEqual(_match_outcome_index("Yes", ["Yes", "No"]), 0)
-        self.assertEqual(_match_outcome_index("NO", ["Yes", "No"]), 1)
-        self.assertEqual(_match_outcome_index("over", ["Over", "Under"]), 0)
-        self.assertEqual(_match_outcome_index("UNDER", ["Over", "Under"]), 1)
+class TestBestPriceForOutcome(unittest.TestCase):
+    def _market(self, **overrides) -> dict:
+        m = {
+            "clobTokenIds": ["tok_yes", "tok_no"],
+            "outcomes": ["Yes", "No"],
+            "outcomePrices": ["0.61", "0.39"],
+        }
+        m.update(overrides)
+        return m
 
-    def test_yes_no_aliases(self):
-        self.assertEqual(_match_outcome_index("true", ["Yes", "No"]), 0)
-        self.assertEqual(_match_outcome_index("false", ["Yes", "No"]), 1)
-        self.assertEqual(_match_outcome_index("1", ["Yes", "No"]), 0)
-        # Previously buggy: "0" used to get mapped to YES.
-        self.assertEqual(_match_outcome_index("0", ["Yes", "No"]), 1)
+    def test_token_id_match_takes_precedence(self):
+        m = self._market()
+        # Even when outcome name disagrees, the explicit token_id wins.
+        self.assertAlmostEqual(_best_price_for_outcome(m, "tok_no", "Yes"), 0.39)
+        self.assertAlmostEqual(_best_price_for_outcome(m, "tok_yes", "No"), 0.61)
 
-    def test_numeric_index_fallback(self):
-        self.assertEqual(_match_outcome_index("0", ["Over", "Under"]), 0)
-        self.assertEqual(_match_outcome_index("1", ["Over", "Under"]), 1)
+    def test_outcome_name_fallback_case_insensitive(self):
+        m = self._market(clobTokenIds=[])
+        self.assertAlmostEqual(_best_price_for_outcome(m, "", "yes"), 0.61)
+        self.assertAlmostEqual(_best_price_for_outcome(m, "", "NO"), 0.39)
 
-    def test_no_match(self):
-        self.assertIsNone(_match_outcome_index("Maybe", ["Yes", "No"]))
-        self.assertIsNone(_match_outcome_index("", ["Yes", "No"]))
-        self.assertIsNone(_match_outcome_index("Yes", []))
+    def test_handles_json_encoded_string_arrays(self):
+        m = {
+            "clobTokenIds": json.dumps(["a", "b"]),
+            "outcomes": json.dumps(["Over", "Under"]),
+            "outcomePrices": json.dumps(["0.21", "0.79"]),
+        }
+        self.assertAlmostEqual(_best_price_for_outcome(m, "b", "Over"), 0.79)
+        self.assertAlmostEqual(_best_price_for_outcome(m, "", "Under"), 0.79)
+
+    def test_returns_none_when_no_match(self):
+        m = self._market()
+        self.assertIsNone(_best_price_for_outcome(m, "unknown", "Maybe"))
+        self.assertIsNone(_best_price_for_outcome({}, "tok", "Yes"))
 
 
 class TestPaperPortfolioAccounting(unittest.TestCase):
@@ -48,7 +61,6 @@ class TestPaperPortfolioAccounting(unittest.TestCase):
         self.assertEqual(len(pos), 1)
         p = pos[0]
         self.assertEqual(p["size"], 20.0)
-        # avg_price = (5.00 + 6.00) / 20 = 0.55
         self.assertAlmostEqual(p["avg_price"], 0.55, places=4)
         self.assertEqual(p["trades"], 2)
 
