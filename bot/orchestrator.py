@@ -223,11 +223,13 @@ class TradingBot:
 
         positions = []
         for pos in raw:
-            token_id = (
-                pos.get("asset", {}).get("token_id", "")
-                or pos.get("tokenId", "")
-                or pos.get("token_id", "")
-            )
+            asset = pos.get("asset")
+            if isinstance(asset, dict):
+                token_id = asset.get("token_id", "") or asset.get("tokenId", "")
+            elif isinstance(asset, str) and len(asset) > 20:
+                token_id = asset
+            else:
+                token_id = pos.get("tokenId", "") or pos.get("token_id", "")
             if not token_id:
                 continue
             size = float(pos.get("size", 0) or 0)
