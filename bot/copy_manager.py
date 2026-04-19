@@ -212,13 +212,28 @@ class CopyManager:
         return added
 
     async def _check_and_prune(self, http: httpx.AsyncClient) -> int:
-        """Re-check all active wallets and prune those below threshold."""
+        """Re-check all active wallets and prune those below threshold.
+        Wallets that were freshly analyzed during _discover_and_add in this same
+        cycle re-use cached stats to avoid an N+1 round of /closed-positions calls."""
         prune_threshold = self._prune_below_win_rate()
         min_trades = self._min_total_trades()
         pruned = 0
+        now = time.time()
+        skip_if_checked_within_s = max(60.0, 0.9 * self._refresh_interval())
 
         for w, st in list(self.state.wallet_stats.items()):
             if st.status != "active":
+                continue
+
+            if st.last_checked and (now - st.last_checked) < skip_if_checked_within_s:
+                total = int(st.wins + st.losses)
+                if total >= min_trades and st.win_rate < prune_threshold:
+                    st.status = "pruned"
+                    pruned += 1
+                    log.info(
+                        "CopyManager PRUNED %s (cached): WR=%.0f%% < %.0f%% threshold",
+                        w[:12], st.win_rate * 100, prune_threshold * 100,
+                    )
                 continue
 
             try:

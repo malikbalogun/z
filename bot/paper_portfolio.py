@@ -149,6 +149,8 @@ class PaperPortfolio:
                 except Exception:
                     pass
             try:
+                if not pos.condition_id:
+                    continue
                 data = await get_json_retry(
                     http,
                     GAMMA_URL,
