@@ -506,16 +506,41 @@ function authHeaders() {
   return t ? { 'Authorization': 'Bearer ' + t } : {};
 }
 
+let _consecutiveFetchErrors = 0;
+let _lastSuccessfulFetchAt = 0;
+
 async function fetchState() {
   try {
-    const resp = await fetch('/api/state', { credentials: 'include' });
+    const resp = await fetch('/api/state', { credentials: 'include', cache: 'no-store' });
     if (resp.status === 401) { window.location.href = '/login'; return; }
-    if (!resp.ok) throw new Error('HTTP ' + resp.status);
-    updateUI(await resp.json());
+    if (!resp.ok) {
+      let bodySnippet = '';
+      try { bodySnippet = (await resp.text()).slice(0, 160); } catch (_) {}
+      throw new Error('HTTP ' + resp.status + (bodySnippet ? ': ' + bodySnippet : ''));
+    }
+    let body;
+    try { body = await resp.json(); }
+    catch (parseErr) { throw new Error('bad JSON: ' + parseErr.message); }
+    updateUI(body);
+    _consecutiveFetchErrors = 0;
+    _lastSuccessfulFetchAt = Date.now();
     document.getElementById('status').textContent = 'Last update: ' + new Date().toLocaleTimeString();
   } catch (e) {
-    document.getElementById('runStatus').textContent = 'Disconnected';
-    document.getElementById('runStatus').className = 'badge stop';
+    _consecutiveFetchErrors += 1;
+    const rs = document.getElementById('runStatus');
+    rs.textContent = 'Disconnected';
+    rs.className = 'badge stop';
+    rs.title = String(e && e.message ? e.message : e);
+    const status = document.getElementById('status');
+    const sinceOk = _lastSuccessfulFetchAt
+      ? ' (last good ' + Math.round((Date.now() - _lastSuccessfulFetchAt) / 1000) + 's ago)'
+      : '';
+    status.textContent = 'Disconnected: ' + (e && e.message ? e.message : e) +
+      ' \u2014 retries: ' + _consecutiveFetchErrors + sinceOk;
+    status.style.color = 'var(--danger)';
+    if (_consecutiveFetchErrors === 1) {
+      console.error('[dashboard] /api/state failed:', e);
+    }
   }
 }
 
