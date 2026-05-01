@@ -27,6 +27,7 @@ from bot.orderbook import orderbook_buy_depth_ok
 from bot.risk import gate_intent
 from bot.settings import Settings, default_kv_seed
 from bot.settings_validation import validate_and_normalize_settings_patch
+from bot.validate import is_valid_polygon_address
 from bot.leaderboard import (
     analyze_wallet_quality,
     discover_qualified_wallets,
@@ -1099,22 +1100,76 @@ async def admin_wallet_quality(
     return {"ok": True, **quality}
 
 
-@router.get("/api/admin/copy-manager")
-async def admin_copy_manager_status(
-    request: Request,
-    _: Annotated[User, Depends(require_admin)],
-):
+def _require_copy_manager(request: Request):
+    """Resolve trader + copy manager or raise 503."""
     bot = _trader(request)
     if not bot:
         raise HTTPException(status_code=503, detail="Trader not initialized")
     mgr = getattr(bot, "_copy_manager", None)
     if not mgr:
-        return {"ok": False, "error": "copy_manager not available"}
+        raise HTTPException(status_code=503, detail="copy_manager not available")
+    return bot, mgr
+
+
+def _normalize_wallet(raw: Any) -> str:
+    """Lowercase a wallet string and reject anything not a valid Polygon address."""
+    w = str(raw or "").strip().lower()
+    if not is_valid_polygon_address(w):
+        raise HTTPException(status_code=400, detail="invalid_wallet_address")
+    return w
+
+
+def _reload_settings_after_copy_change(bot) -> None:
+    """Reload Settings + sync copy-related agents after we mutate copy_watch_wallets.
+
+    Mirrors what the refresh endpoint did inline; centralized so pin/unpin/remove
+    pick up the fresh wallet list immediately.
+    """
+    try:
+        new_settings = Settings.load()
+    except Exception:  # pragma: no cover — defensive only
+        return
+    bot.settings = new_settings
+    copy_agent = getattr(bot, "_copy_agent", None)
+    if copy_agent is not None:
+        copy_agent.settings = new_settings
+    mgr = getattr(bot, "_copy_manager", None)
+    if mgr is not None:
+        try:
+            mgr.sync_settings(new_settings)
+        except Exception:  # pragma: no cover
+            pass
+
+
+@router.get("/api/admin/copy-manager")
+async def admin_copy_manager_status(
+    request: Request,
+    _: Annotated[User, Depends(require_admin)],
+    history_limit: int = 10,
+):
+    """Return CopyManager summary + tracked wallets + recent refresh log.
+
+    The dashboard panel calls this on load and after every action. The
+    response shape is intentionally additive so older clients keep working.
+    """
+    _, mgr = _require_copy_manager(request)
     return {
         "ok": True,
         "summary": mgr.get_summary(),
         "wallets": mgr.get_managed_wallets(),
+        "refresh_log": mgr.get_refresh_log(history_limit),
     }
+
+
+@router.get("/api/admin/copy-manager/history")
+async def admin_copy_manager_history(
+    request: Request,
+    _: Annotated[User, Depends(require_admin)],
+    limit: int = 50,
+):
+    """Recent refresh events (newest last). Backed by an in-memory ring buffer."""
+    _, mgr = _require_copy_manager(request)
+    return {"ok": True, "history": mgr.get_refresh_log(limit)}
 
 
 @router.post("/api/admin/copy-manager/refresh")
@@ -1123,16 +1178,66 @@ async def admin_copy_manager_refresh(
     _: Annotated[User, Depends(require_admin)],
 ):
     """Force an immediate copy manager refresh (re-scan + prune)."""
-    bot = _trader(request)
-    if not bot:
-        raise HTTPException(status_code=503, detail="Trader not initialized")
-    mgr = getattr(bot, "_copy_manager", None)
+    bot, mgr = _require_copy_manager(request)
     http = getattr(bot, "_http", None)
-    if not mgr or not http:
+    if http is None:
         raise HTTPException(status_code=503, detail="copy_manager or http not ready")
     result = await mgr.refresh(http)
     if result.get("added") or result.get("pruned"):
-        from bot.settings import Settings
-        bot.settings = Settings.load()
-        bot._copy_agent.settings = bot.settings
+        _reload_settings_after_copy_change(bot)
     return {"ok": True, **result}
+
+
+class _WalletActionBody(BaseModel):
+    wallet: str = Field(..., description="0x-prefixed Polygon address")
+
+
+@router.post("/api/admin/copy-manager/pin")
+async def admin_copy_manager_pin(
+    request: Request,
+    body: _WalletActionBody,
+    _: Annotated[User, Depends(require_admin)],
+):
+    """Mark a wallet as MANUAL so it is exempt from auto-prune.
+
+    If the wallet is not yet tracked, it is added as a manual entry.
+    """
+    bot, mgr = _require_copy_manager(request)
+    w = _normalize_wallet(body.wallet)
+    result = mgr.pin(w)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("reason", "pin_failed"))
+    _reload_settings_after_copy_change(bot)
+    return result
+
+
+@router.post("/api/admin/copy-manager/unpin")
+async def admin_copy_manager_unpin(
+    request: Request,
+    body: _WalletActionBody,
+    _: Annotated[User, Depends(require_admin)],
+):
+    """Convert a MANUAL wallet back to ACTIVE (eligible for auto-prune)."""
+    bot, mgr = _require_copy_manager(request)
+    w = _normalize_wallet(body.wallet)
+    result = mgr.unpin(w)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("reason", "unpin_failed"))
+    _reload_settings_after_copy_change(bot)
+    return result
+
+
+@router.post("/api/admin/copy-manager/remove")
+async def admin_copy_manager_remove(
+    request: Request,
+    body: _WalletActionBody,
+    _: Annotated[User, Depends(require_admin)],
+):
+    """Remove a wallet from tracking entirely. Persists copy_watch_wallets KV."""
+    bot, mgr = _require_copy_manager(request)
+    w = _normalize_wallet(body.wallet)
+    result = mgr.remove(w)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("reason", "remove_failed"))
+    _reload_settings_after_copy_change(bot)
+    return result

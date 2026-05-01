@@ -1,0 +1,44 @@
+timestamp,wallet,market_slug,condition_id,token_id,category,outcome,side,price,usdc,realized_pnl,title
+2026-03-01T10:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,btc-up-mar-01,c_btc_01,t_btc_01_yes,crypto_short,yes,BUY,0.45,50,15.0,BTC up by 6pm Mar 01
+2026-03-01T10:05:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,eth-up-mar-01,c_eth_01,t_eth_01_yes,crypto_short,yes,BUY,0.50,40,12.0,ETH up by 6pm Mar 01
+2026-03-01T11:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,sol-up-mar-01,c_sol_01,t_sol_01_yes,crypto_short,yes,BUY,0.40,60,18.0,SOL up by 6pm Mar 01
+2026-03-01T12:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,xrp-up-mar-01,c_xrp_01,t_xrp_01_yes,crypto_short,yes,BUY,0.30,30,9.0,XRP up by 6pm Mar 01
+2026-03-01T13:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,btc-up-mar-02,c_btc_02,t_btc_02_yes,crypto_short,yes,BUY,0.55,50,14.0,BTC up by 6pm Mar 02
+2026-03-01T14:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,nfl-week-x,c_nfl_01,t_nfl_01_yes,sports,yes,BUY,0.50,40,11.0,NFL week X winner
+2026-03-01T15:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,uk-election,c_uk_01,t_uk_01_yes,politics,yes,BUY,0.45,50,13.5,UK election
+2026-03-01T16:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,fed-rate-mar,c_fed_01,t_fed_01_yes,macro,yes,BUY,0.60,40,10.0,Fed rate March
+2026-03-01T17:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,wimbledon-final,c_wim_01,t_wim_01_yes,sports,yes,BUY,0.35,30,8.0,Wimbledon final
+2026-03-01T18:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,starship-launch,c_ss_01,t_ss_01_yes,science_tech,yes,BUY,0.50,50,15.0,Starship lands
+2026-03-02T09:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,btc-up-mar-03,c_btc_03,t_btc_03_yes,crypto_short,yes,BUY,0.40,50,17.0,BTC up by 6pm Mar 03
+2026-03-02T10:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,eth-up-mar-03,c_eth_03,t_eth_03_yes,crypto_short,yes,BUY,0.45,40,11.0,ETH up by 6pm Mar 03
+2026-03-02T11:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,sol-up-mar-03,c_sol_03,t_sol_03_yes,crypto_short,yes,BUY,0.50,30,9.0,SOL up by 6pm Mar 03
+2026-03-02T12:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,btc-up-mar-04,c_btc_04,t_btc_04_yes,crypto_short,yes,BUY,0.55,40,12.0,BTC up by 6pm Mar 04
+2026-03-02T13:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,eth-up-mar-04,c_eth_04,t_eth_04_yes,crypto_short,yes,BUY,0.45,50,16.0,ETH up by 6pm Mar 04
+2026-03-02T14:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,fed-rate-mar-q,c_fed_q,t_fed_q_yes,macro,yes,BUY,0.55,40,10.0,Fed rate March Q
+2026-03-02T15:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,uk-election-runoff,c_uk_r,t_uk_r_yes,politics,yes,BUY,0.50,50,12.5,UK election runoff
+2026-03-02T16:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,nfl-playoff-1,c_nfl_p,t_nfl_p_yes,sports,yes,BUY,0.40,50,12.0,NFL playoff 1
+2026-03-02T17:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,starship-orbit,c_ss_o,t_ss_o_yes,science_tech,yes,BUY,0.45,40,11.0,Starship orbits
+2026-03-02T18:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,wimbledon-semi,c_wim_s,t_wim_s_yes,sports,yes,BUY,0.50,30,7.5,Wimbledon semi
+2026-03-03T09:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,btc-up-mar-05,c_btc_05,t_btc_05_yes,crypto_short,yes,BUY,0.50,50,12.0,BTC up by 6pm Mar 05
+2026-03-03T10:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,eth-up-mar-05,c_eth_05,t_eth_05_yes,crypto_short,yes,BUY,0.45,40,9.0,ETH up by 6pm Mar 05
+2026-03-03T11:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,sol-up-mar-05,c_sol_05,t_sol_05_yes,crypto_short,yes,BUY,0.40,30,8.0,SOL up by 6pm Mar 05
+2026-03-03T12:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,btc-up-mar-06,c_btc_06,t_btc_06_yes,crypto_short,yes,BUY,0.55,40,11.0,BTC up by 6pm Mar 06
+2026-03-03T13:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,eth-up-mar-06,c_eth_06,t_eth_06_yes,crypto_short,yes,BUY,0.50,50,12.5,ETH up by 6pm Mar 06
+2026-03-01T10:00:00Z,0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,nfl-week-x,c_nfl_01,t_nfl_01_yes,sports,yes,BUY,0.50,40,-15.0,NFL week X winner
+2026-03-01T11:00:00Z,0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,wimbledon-final,c_wim_01,t_wim_01_yes,sports,yes,BUY,0.45,50,-20.0,Wimbledon final
+2026-03-01T12:00:00Z,0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,uk-election,c_uk_01,t_uk_01_yes,politics,yes,BUY,0.40,30,-12.0,UK election
+2026-03-01T13:00:00Z,0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,btc-up-mar-02,c_btc_02,t_btc_02_yes,crypto_short,yes,BUY,0.55,40,-18.0,BTC up by 6pm Mar 02
+2026-03-01T14:00:00Z,0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,nfl-playoff-1,c_nfl_p,t_nfl_p_yes,sports,yes,BUY,0.50,30,-10.0,NFL playoff 1
+2026-03-02T09:00:00Z,0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,wimbledon-semi,c_wim_s,t_wim_s_yes,sports,yes,BUY,0.50,40,-14.0,Wimbledon semi
+2026-03-02T10:00:00Z,0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,fed-rate-mar-q,c_fed_q,t_fed_q_yes,macro,yes,BUY,0.55,30,-9.0,Fed rate March Q
+2026-03-02T11:00:00Z,0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,starship-orbit,c_ss_o,t_ss_o_yes,science_tech,yes,BUY,0.45,40,-13.0,Starship orbits
+2026-03-02T12:00:00Z,0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,uk-election-runoff,c_uk_r,t_uk_r_yes,politics,yes,BUY,0.50,30,-7.5,UK election runoff
+2026-03-02T13:00:00Z,0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,sol-up-mar-04,c_sol_04,t_sol_04_yes,crypto_short,yes,BUY,0.45,40,-12.0,SOL up by 6pm Mar 04
+2026-03-03T10:00:00Z,0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,btc-up-mar-05,c_btc_05,t_btc_05_yes,crypto_short,yes,BUY,0.50,40,-10.0,BTC up by 6pm Mar 05
+2026-03-03T11:00:00Z,0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,eth-up-mar-05,c_eth_05,t_eth_05_yes,crypto_short,yes,BUY,0.45,30,-8.0,ETH up by 6pm Mar 05
+2026-03-03T12:00:00Z,0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,sol-up-mar-05,c_sol_05,t_sol_05_yes,crypto_short,yes,BUY,0.40,40,-12.0,SOL up by 6pm Mar 05
+2026-03-04T10:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,btc-up-mar-07,c_btc_07,t_btc_07_yes,crypto_short,yes,BUY,0.50,50,12.0,BTC up by 6pm Mar 07
+2026-03-04T11:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,eth-up-mar-07,c_eth_07,t_eth_07_yes,crypto_short,yes,BUY,0.45,40,9.0,ETH up by 6pm Mar 07
+2026-03-04T12:00:00Z,0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,sol-up-mar-07,c_sol_07,t_sol_07_yes,crypto_short,yes,BUY,0.40,50,15.0,SOL up by 6pm Mar 07
+2026-03-04T13:00:00Z,0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,btc-up-mar-07,c_btc_07,t_btc_07_yes,crypto_short,yes,BUY,0.50,40,-10.0,BTC up by 6pm Mar 07
+2026-03-04T14:00:00Z,0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb,eth-up-mar-07,c_eth_07,t_eth_07_yes,crypto_short,yes,BUY,0.45,40,-12.0,ETH up by 6pm Mar 07
