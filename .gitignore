@@ -9,4 +9,8 @@ __pycache__/
 config.json
 data/*.db
 data/uploads/
+# Backtest artifacts: snapshots can be huge + license-restricted, and
+# reports change every run. Only the .gitkeep stays.
+data/backtest/*
+!data/backtest/.gitkeep
 *.log
