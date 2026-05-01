@@ -13,8 +13,9 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Deque
 
 import httpx
 
@@ -29,6 +30,9 @@ log = logging.getLogger("polymarket.copy_manager")
 
 # How often to re-scan leaderboard (seconds). Default: every 6 hours.
 _DEFAULT_REFRESH_INTERVAL = 6 * 3600
+
+# Cap for the in-memory refresh history ring buffer.
+_REFRESH_LOG_CAP = 50
 
 
 @dataclass
@@ -51,13 +55,20 @@ class WalletStats:
 
 @dataclass
 class CopyManagerState:
-    """Persistent state for the copy manager."""
+    """Persistent (in-memory) state for the copy manager.
+
+    `refresh_log` is a ring buffer of recent refresh outcomes for the dashboard.
+    Each entry: {ts, added, pruned, active_after, duration_ms, error}.
+    """
     wallet_stats: dict[str, WalletStats] = field(default_factory=dict)
     last_refresh: float = 0.0
     last_prune: float = 0.0
     refresh_count: int = 0
     total_added: int = 0
     total_pruned: int = 0
+    refresh_log: Deque[dict[str, Any]] = field(
+        default_factory=lambda: deque(maxlen=_REFRESH_LOG_CAP)
+    )
 
 
 class CopyManager:
@@ -119,10 +130,17 @@ class CopyManager:
         return (time.time() - self.state.last_refresh) >= self._refresh_interval()
 
     async def refresh(self, http: httpx.AsyncClient) -> dict[str, Any]:
-        """Full refresh cycle: discover new wallets + prune underperformers."""
+        """Full refresh cycle: discover new wallets + prune underperformers.
+
+        Records a single entry in `state.refresh_log` for the dashboard
+        (capped ring buffer) so the UI can show a recent history.
+        """
         self._http = http
         self._seed_manual_wallets()
+        started = time.monotonic()
+        started_wall = time.time()
         result: dict[str, Any] = {"added": 0, "pruned": 0, "checked": 0, "active": 0}
+        error: str | None = None
 
         try:
             # 1. Discover new qualified wallets from all leaderboard categories
@@ -148,8 +166,21 @@ class CopyManager:
             )
         except Exception as e:
             log.error("CopyManager refresh failed: %s", e)
-            result["error"] = str(e)
+            error = str(e)
+            result["error"] = error
 
+        duration_ms = round((time.monotonic() - started) * 1000.0, 2)
+        result["duration_ms"] = duration_ms
+        self.state.refresh_log.append(
+            {
+                "ts": started_wall,
+                "added": int(result.get("added", 0)),
+                "pruned": int(result.get("pruned", 0)),
+                "active_after": int(result.get("active", 0)),
+                "duration_ms": duration_ms,
+                "error": error,
+            }
+        )
         return result
 
     async def _discover_and_add(self, http: httpx.AsyncClient) -> int:
@@ -277,6 +308,11 @@ class CopyManager:
             out.append({
                 "wallet": w,
                 "status": st.status,
+                # Stable boolean + label fields so the UI can show MANUAL vs AUTO
+                # without recomputing from `status`. Manual wallets keep a
+                # source_category if we know it; auto wallets always have one.
+                "is_manual": st.status == "manual",
+                "source": "manual" if st.status == "manual" else "auto",
                 "win_rate": st.win_rate,
                 "wins": st.wins,
                 "losses": st.losses,
@@ -289,8 +325,15 @@ class CopyManager:
                 "added_at": st.added_at,
                 "last_checked": st.last_checked,
             })
-        out.sort(key=lambda x: (-1 if x["status"] == "active" else 0, -x["win_rate"]))
+        # Sort: active first, then manual, then pruned; within each group, by win_rate desc.
+        _order = {"active": 0, "manual": 1, "pruned": 2}
+        out.sort(key=lambda x: (_order.get(x["status"], 9), -float(x["win_rate"] or 0)))
         return out
+
+    def get_refresh_log(self, limit: int = 50) -> list[dict[str, Any]]:
+        """Return recent refresh events (newest last)."""
+        n = max(1, min(_REFRESH_LOG_CAP, int(limit or _REFRESH_LOG_CAP)))
+        return list(self.state.refresh_log)[-n:]
 
     def get_summary(self) -> dict[str, Any]:
         stats = self.state.wallet_stats
@@ -310,4 +353,59 @@ class CopyManager:
             "auto_manage": self._auto_manage(),
             "min_win_rate": self._min_win_rate(),
             "prune_threshold": self._prune_below_win_rate(),
+            "refresh_interval_s": self._refresh_interval(),
+            "max_watched_wallets": self._max_wallets(),
         }
+
+    # ----- Manual wallet actions (UI-driven) ------------------------------------
+
+    def pin(self, wallet: str) -> dict[str, Any]:
+        """Convert an existing wallet to MANUAL status, persist.
+
+        Manual wallets are protected from auto-prune. Returns the new state for
+        the wallet (or {"ok": False, "reason": ...} if not found).
+        """
+        w = str(wallet).strip().lower()
+        if not w:
+            return {"ok": False, "reason": "empty_wallet"}
+        st = self.state.wallet_stats.get(w)
+        now = time.time()
+        if st is None:
+            # Pinning a wallet we don't track yet: create as manual.
+            self.state.wallet_stats[w] = WalletStats(
+                wallet=w,
+                added_at=now,
+                last_checked=0.0,
+                status="manual",
+            )
+            self._persist_wallets()
+            log.info("CopyManager PIN %s (new manual wallet)", w[:12])
+            return {"ok": True, "wallet": w, "status": "manual", "created": True}
+        prev = st.status
+        st.status = "manual"
+        self._persist_wallets()
+        log.info("CopyManager PIN %s (was %s -> manual)", w[:12], prev)
+        return {"ok": True, "wallet": w, "status": "manual", "prev_status": prev}
+
+    def unpin(self, wallet: str) -> dict[str, Any]:
+        """Convert a MANUAL wallet back to ACTIVE so it can be auto-pruned."""
+        w = str(wallet).strip().lower()
+        st = self.state.wallet_stats.get(w)
+        if st is None:
+            return {"ok": False, "reason": "not_tracked"}
+        if st.status != "manual":
+            return {"ok": False, "reason": f"not_manual ({st.status})"}
+        st.status = "active"
+        self._persist_wallets()
+        log.info("CopyManager UNPIN %s (manual -> active)", w[:12])
+        return {"ok": True, "wallet": w, "status": "active", "prev_status": "manual"}
+
+    def remove(self, wallet: str) -> dict[str, Any]:
+        """Remove a wallet entirely from tracking and persist the new list."""
+        w = str(wallet).strip().lower()
+        st = self.state.wallet_stats.pop(w, None)
+        if st is None:
+            return {"ok": False, "reason": "not_tracked"}
+        self._persist_wallets()
+        log.info("CopyManager REMOVE %s (was %s)", w[:12], st.status)
+        return {"ok": True, "wallet": w, "removed_from_status": st.status}
