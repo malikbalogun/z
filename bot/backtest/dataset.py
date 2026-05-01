@@ -92,7 +92,7 @@ class TradeRow:
 
     @property
     def date(self) -> _dt.date:
-        return _dt.datetime.utcfromtimestamp(self.ts_epoch).date()
+        return _dt.datetime.fromtimestamp(self.ts_epoch, _dt.timezone.utc).date()
 
 
 @dataclass
