@@ -506,6 +506,45 @@
       </div>
 
       <div class="settings-group" style="margin-top:16px;">
+        <div class="group-header open"><h3>Copy Manager <span style="font-size:0.7rem;font-weight:500;color:var(--muted);margin-left:6px;">live</span></h3><div class="group-desc">What the bot is currently watching and why. Manual wallets you pin are never auto-pruned.</div></div>
+        <div class="group-body open">
+          <div id="cm_summary" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;font-size:0.78rem;">
+            <span class="tele-card" style="padding:6px 10px;"><span style="color:var(--muted);">Loading\u2026</span></span>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+            <button type="button" class="btn btn-primary btn-sm" id="btn_cm_refresh">Refresh now</button>
+            <button type="button" class="btn btn-sm" id="btn_cm_reload">Reload state</button>
+            <span id="cm_reload_status" style="font-size:0.72rem;color:var(--muted);"></span>
+            <span style="flex:1;"></span>
+            <input id="cm_pin_input" type="text" placeholder="0x\u2026 paste a wallet to pin" style="flex:0 1 320px;padding:5px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:0.78rem;">
+            <button type="button" class="btn btn-sm" id="btn_cm_pin_new">Pin wallet</button>
+          </div>
+          <div id="cm_table_wrap" style="overflow:auto;max-height:520px;border:1px solid var(--border);border-radius:8px;">
+            <table id="cm_table" style="width:100%;border-collapse:collapse;font-size:0.75rem;">
+              <thead style="position:sticky;top:0;background:var(--surface2);z-index:1;">
+                <tr style="text-align:left;">
+                  <th style="padding:8px 8px;border-bottom:1px solid var(--border);">Wallet</th>
+                  <th style="padding:8px 8px;border-bottom:1px solid var(--border);">Source</th>
+                  <th style="padding:8px 8px;border-bottom:1px solid var(--border);">Status</th>
+                  <th style="padding:8px 8px;border-bottom:1px solid var(--border);text-align:right;">WR</th>
+                  <th style="padding:8px 8px;border-bottom:1px solid var(--border);text-align:right;">Streak</th>
+                  <th style="padding:8px 8px;border-bottom:1px solid var(--border);text-align:right;">Trades</th>
+                  <th style="padding:8px 8px;border-bottom:1px solid var(--border);text-align:right;">PnL</th>
+                  <th style="padding:8px 8px;border-bottom:1px solid var(--border);">Last checked</th>
+                  <th style="padding:8px 8px;border-bottom:1px solid var(--border);">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="cm_tbody"></tbody>
+            </table>
+          </div>
+          <details id="cm_history_wrap" style="margin-top:10px;">
+            <summary style="cursor:pointer;font-size:0.78rem;color:var(--muted);">Refresh history (last entries)</summary>
+            <div id="cm_history" style="margin-top:8px;font-size:0.74rem;"></div>
+          </details>
+        </div>
+      </div>
+
+      <div class="settings-group" style="margin-top:16px;">
         <div class="group-header open"><h3>Copy Preview / Debug</h3><div class="group-desc">Fetches recent wallet trades and shows pass/fail by your current copy filters</div></div>
         <div class="group-body open">
           <div class="field-grid">
@@ -1366,6 +1405,218 @@ document.getElementById('btn_telemetry').onclick = async () => {
   }
 };
 
+/* ─── Copy Manager panel ─── */
+
+function fmtRelTime(epoch) {
+  if (!epoch || epoch <= 0) return 'never';
+  const sec = Math.max(0, (Date.now()/1000) - Number(epoch));
+  if (sec < 60) return Math.round(sec) + 's ago';
+  if (sec < 3600) return Math.round(sec/60) + 'm ago';
+  if (sec < 86400) return Math.round(sec/3600) + 'h ago';
+  return Math.round(sec/86400) + 'd ago';
+}
+function fmtCountdown(secLeft) {
+  if (!Number.isFinite(secLeft) || secLeft <= 0) return '0s';
+  const s = Math.round(secLeft);
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.round(s/60) + 'm';
+  return Math.round(s/3600) + 'h';
+}
+function fmtPnl(v) {
+  const n = Number(v||0);
+  const abs = Math.abs(n);
+  let s;
+  if (abs >= 1e6) s = '$' + (n/1e6).toFixed(2) + 'M';
+  else if (abs >= 1e3) s = '$' + (n/1e3).toFixed(1) + 'k';
+  else s = '$' + n.toFixed(0);
+  return s;
+}
+function shortWallet(w) {
+  const s = String(w||'');
+  if (s.length <= 12) return s;
+  return s.slice(0, 8) + '\u2026' + s.slice(-4);
+}
+
+function renderCopyManager(j) {
+  const sum = j.summary || {};
+  const wallets = j.wallets || [];
+  const log = j.refresh_log || [];
+
+  // Header summary chips
+  const sumEl = document.getElementById('cm_summary');
+  const auto = sum.auto_manage ? '<span style="color:var(--accent);">ON</span>' : '<span style="color:var(--warn);">OFF</span>';
+  const lastRel = fmtRelTime(sum.last_refresh);
+  const nextIn = sum.last_refresh ? fmtCountdown(sum.next_refresh_in_s) : '\u2014';
+  const refreshIvHrs = Math.round((sum.refresh_interval_s||0)/3600 * 10)/10;
+  sumEl.innerHTML = '' +
+    '<span class="tele-card" style="padding:6px 10px;"><span style="color:var(--muted);">Active</span> <strong style="color:var(--accent);">'+(sum.active_wallets||0)+'</strong></span>' +
+    '<span class="tele-card" style="padding:6px 10px;"><span style="color:var(--muted);">Manual</span> <strong style="color:var(--info);">'+(sum.manual_wallets||0)+'</strong></span>' +
+    '<span class="tele-card" style="padding:6px 10px;"><span style="color:var(--muted);">Pruned</span> <strong>'+(sum.pruned_wallets||0)+'</strong></span>' +
+    '<span class="tele-card" style="padding:6px 10px;"><span style="color:var(--muted);">Total</span> <strong>'+(sum.total_tracked||0)+'</strong> / '+(sum.max_watched_wallets||50)+'</span>' +
+    '<span class="tele-card" style="padding:6px 10px;"><span style="color:var(--muted);">Auto-manage</span> '+auto+'</span>' +
+    '<span class="tele-card" style="padding:6px 10px;"><span style="color:var(--muted);">Last refresh</span> '+esc(lastRel)+'</span>' +
+    '<span class="tele-card" style="padding:6px 10px;"><span style="color:var(--muted);">Next in</span> '+esc(nextIn)+' (every '+esc(refreshIvHrs)+'h)</span>' +
+    '<span class="tele-card" style="padding:6px 10px;"><span style="color:var(--muted);">Refreshes</span> '+(sum.refresh_count||0)+' (+'+(sum.total_added||0)+' / -'+(sum.total_pruned||0)+')</span>';
+
+  // Body table
+  const tbody = document.getElementById('cm_tbody');
+  if (!wallets.length) {
+    tbody.innerHTML = '<tr><td colspan="9" style="padding:18px;color:var(--muted);text-align:center;">No wallets tracked yet. Click "Refresh now" to discover top traders, or paste a wallet above and click "Pin wallet".</td></tr>';
+  } else {
+    tbody.innerHTML = wallets.map(w => {
+      const wr = (w.win_rate || 0) * 100;
+      const wrColor = wr >= 70 ? 'var(--accent)' : (wr >= 50 ? 'var(--warn)' : 'var(--danger)');
+      const isManual = !!w.is_manual;
+      const status = String(w.status||'').toLowerCase();
+      const statusBadge = status === 'active'
+          ? '<span style="display:inline-block;padding:2px 6px;border-radius:4px;background:rgba(61,255,156,0.1);color:var(--accent);font-size:0.68rem;">ACTIVE</span>'
+        : status === 'manual'
+          ? '<span style="display:inline-block;padding:2px 6px;border-radius:4px;background:rgba(92,184,255,0.12);color:var(--info);font-size:0.68rem;">MANUAL</span>'
+        : status === 'pruned'
+          ? '<span style="display:inline-block;padding:2px 6px;border-radius:4px;background:rgba(255,92,92,0.12);color:var(--danger);font-size:0.68rem;">PRUNED</span>'
+          : '<span style="display:inline-block;padding:2px 6px;border-radius:4px;background:var(--surface2);color:var(--muted);font-size:0.68rem;">'+esc(status.toUpperCase())+'</span>';
+      const sourceLabel = isManual
+        ? '<span style="font-size:0.68rem;color:var(--info);">manual</span>'
+        : '<span style="font-size:0.68rem;color:var(--muted);">auto'+(w.source_category? ' / '+esc(String(w.source_category).toUpperCase()) : '')+'</span>';
+      const pinBtn = isManual
+        ? '<button type="button" class="btn btn-sm" data-act="unpin" data-wallet="'+esc(w.wallet)+'" title="Unpin (auto-manage)">\ud83d\udd13</button>'
+        : '<button type="button" class="btn btn-sm" data-act="pin" data-wallet="'+esc(w.wallet)+'" title="Pin as manual (skip auto-prune)">\ud83d\udccc</button>';
+      const removeBtn = '<button type="button" class="btn btn-sm btn-danger" data-act="remove" data-wallet="'+esc(w.wallet)+'" title="Remove from tracking">\ud83d\uddd1</button>';
+      const trades = (Number(w.wins||0) + Number(w.losses||0));
+      return '<tr style="border-bottom:1px solid var(--border);">'+
+        '<td class="mono" style="padding:5px 8px;"><span title="'+esc(w.wallet)+'" data-copywallet="'+esc(w.wallet)+'" style="cursor:pointer;">'+esc(shortWallet(w.wallet))+'</span>'+(w.user_name? ' <span style="color:var(--muted);font-size:0.7rem;">'+esc(w.user_name).slice(0,20)+'</span>':'')+'</td>'+
+        '<td style="padding:5px 8px;">'+sourceLabel+'</td>'+
+        '<td style="padding:5px 8px;">'+statusBadge+'</td>'+
+        '<td style="padding:5px 8px;text-align:right;color:'+wrColor+';">'+wr.toFixed(0)+'%</td>'+
+        '<td style="padding:5px 8px;text-align:right;">'+(w.max_streak||0)+'</td>'+
+        '<td style="padding:5px 8px;text-align:right;">'+trades+'</td>'+
+        '<td style="padding:5px 8px;text-align:right;color:'+(Number(w.total_pnl||0)>=0?'var(--accent)':'var(--danger)')+';">'+esc(fmtPnl(w.total_pnl))+'</td>'+
+        '<td style="padding:5px 8px;color:var(--muted);">'+esc(fmtRelTime(w.last_checked))+'</td>'+
+        '<td style="padding:5px 8px;white-space:nowrap;">'+pinBtn+' '+removeBtn+'</td>'+
+        '</tr>';
+    }).join('');
+  }
+
+  // History (newest first for display)
+  const hist = document.getElementById('cm_history');
+  if (!log.length) {
+    hist.innerHTML = '<div style="color:var(--muted);">No refreshes recorded yet.</div>';
+  } else {
+    const rows = log.slice().reverse().map(e => {
+      const t = new Date((Number(e.ts||0))*1000).toLocaleString();
+      const err = e.error ? ' <span style="color:var(--danger);">err: '+esc(String(e.error))+'</span>' : '';
+      return '<div style="display:flex;gap:12px;padding:4px 6px;border-bottom:1px dashed var(--border);">'+
+        '<span style="color:var(--muted);min-width:170px;">'+esc(t)+'</span>'+
+        '<span>+'+(e.added||0)+' added</span>'+
+        '<span style="color:var(--danger);">-'+(e.pruned||0)+' pruned</span>'+
+        '<span style="color:var(--muted);">'+(e.active_after||0)+' active</span>'+
+        '<span style="color:var(--muted);">'+esc(String(Math.round(Number(e.duration_ms||0))))+'ms</span>'+
+        err+
+        '</div>';
+    }).join('');
+    hist.innerHTML = rows;
+  }
+}
+
+async function loadCopyManager(showToast) {
+  try {
+    const r = await api('/api/admin/copy-manager?history_limit=50');
+    if (!r.ok) {
+      if (showToast) toast('Copy Manager: ' + await readApiError(r), false);
+      const sum = document.getElementById('cm_summary');
+      if (sum) sum.innerHTML = '<span class="tele-card" style="padding:6px 10px;color:var(--warn);">Trader not running yet \u2014 start the bot to see live state.</span>';
+      const tb = document.getElementById('cm_tbody');
+      if (tb) tb.innerHTML = '';
+      return;
+    }
+    const j = await r.json();
+    renderCopyManager(j);
+  } catch (e) {
+    if (showToast) toast('Copy Manager error: ' + String(e), false);
+  }
+}
+
+document.getElementById('btn_cm_refresh').onclick = async () => {
+  const btn = document.getElementById('btn_cm_refresh');
+  const status = document.getElementById('cm_reload_status');
+  btn.disabled = true; btn.textContent = 'Refreshing\u2026';
+  status.textContent = 'Calling leaderboard \u2192 quality check \u2192 prune\u2026';
+  try {
+    const r = await api('/api/admin/copy-manager/refresh', { method:'POST' });
+    if (!r.ok) { toast(await readApiError(r), false); return; }
+    const j = await r.json();
+    toast('Refresh: +'+(j.added||0)+' added, -'+(j.pruned||0)+' pruned ('+(j.duration_ms||0)+'ms)', true);
+    await loadCopyManager(false);
+  } catch (e) {
+    toast('Refresh error: ' + String(e), false);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Refresh now';
+    status.textContent = '';
+  }
+};
+
+document.getElementById('btn_cm_reload').onclick = () => loadCopyManager(true);
+
+document.getElementById('btn_cm_pin_new').onclick = async () => {
+  const inp = document.getElementById('cm_pin_input');
+  const w = (inp.value || '').trim();
+  if (!w) { toast('Enter a wallet first', false); return; }
+  const r = await api('/api/admin/copy-manager/pin', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ wallet: w }),
+  });
+  if (!r.ok) { toast(await readApiError(r), false); return; }
+  toast('Pinned ' + shortWallet(w), true);
+  inp.value = '';
+  await loadCopyManager(false);
+};
+
+// Delegated row actions (pin / unpin / remove / copy address)
+document.getElementById('cm_table').addEventListener('click', async (ev) => {
+  const t = ev.target.closest('button[data-act]');
+  if (t) {
+    const act = t.dataset.act;
+    const wallet = t.dataset.wallet;
+    if (act === 'remove') {
+      if (!confirm('Remove ' + shortWallet(wallet) + ' from tracking?')) return;
+    }
+    t.disabled = true;
+    try {
+      const r = await api('/api/admin/copy-manager/' + act, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ wallet }),
+      });
+      if (!r.ok) { toast(await readApiError(r), false); return; }
+      toast(act + ': ' + shortWallet(wallet), true);
+      await loadCopyManager(false);
+    } catch (e) {
+      toast(act + ' failed: ' + String(e), false);
+    } finally {
+      t.disabled = false;
+    }
+    return;
+  }
+  const cp = ev.target.closest('span[data-copywallet]');
+  if (cp) {
+    const wallet = cp.dataset.copywallet;
+    try {
+      await navigator.clipboard.writeText(wallet);
+      toast('Copied ' + shortWallet(wallet), true);
+    } catch (e) {
+      toast('Copy failed: ' + String(e), false);
+    }
+  }
+});
+
+// Auto-load when the user activates the Debug & Preview tab.
+document.querySelectorAll('.tabbtn').forEach(btn => {
+  if (btn.dataset.tab === 'tab-debug') {
+    btn.addEventListener('click', () => loadCopyManager(false));
+  }
+});
+
 document.getElementById('logout').onclick = async (e) => {
   e.preventDefault();
   if (unsavedChanges && !confirm('You have unsaved changes. Leave anyway?')) return;
@@ -1378,6 +1629,7 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 loadAll();
+loadCopyManager(false);
 </script>
 </body>
 </html>
