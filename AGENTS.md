@@ -10,8 +10,10 @@ From repo root:
 - `make test` — run unit tests (requires `make setup` first).
 - `make run` — start the bot (`python main.py`).
 - `make package` — build `polymarket_real_bot-YYYYMMDD-HHMM.zip` without `.venv`, `config.json`, or `data/*.db` (safe for VPS upload).
+- `make backtest` — run the offline copy-trading backtest harness against the vendored mini fixture (no network). Writes `data/backtest/report.{json,md}`. Override the dataset with `BACKTEST_DATASET=path/to/trades.csv.gz make backtest`.
+- `make backtest-data` — fetch + sha256-verify a third-party trade snapshot. Requires `PM_BACKTEST_DATA_URL` and `PM_BACKTEST_DATA_SHA256` env vars (no default URL is baked in).
 
-Shell equivalents: `bash scripts/setup_workspace.sh`, `bash scripts/package_for_vps.sh`.
+Shell equivalents: `bash scripts/setup_workspace.sh`, `bash scripts/package_for_vps.sh`, `bash scripts/download_backtest_data.sh`, `python scripts/run_backtest.py --help`.
 
 ## Secrets and config
 
@@ -34,4 +36,14 @@ Prefer invoking **fixed commands** above from the machine where the workspace li
 - **Lint**: No dedicated linter is configured in this repo (no `ruff`, `flake8`, or `mypy` in `requirements.txt`). Tests are the primary quality gate: `make test`.
 - **Running the app**: `make run` (or `source .venv/bin/activate && python main.py --ui dashboard`). The web dashboard listens on port **5002**. Default bootstrap admin credentials are in `config.json` (`admin` / `change-me-immediately`).
 - **No external services required for dev**: SQLite is embedded; `config.json` is auto-created from `config.json.example` by `make setup`. The bot starts in **DRY_RUN** mode and runs without Polymarket API keys (it just logs "waiting for valid keys" and retries every ~12 s).
-- **Tests are fully offline**: `make test` runs 131 unit tests with no network or API keys needed.
+- **Tests are fully offline**: `make test` runs 180 unit tests with no network or API keys needed.
+
+## Backtest harness (Phase D)
+
+- **Goal**: replay historical wallet trades through the *same* `wallet_score_v2` + `passes_filters` code path the live bot uses for copy decisions, so changes to scoring/heuristics can be measured before they ship.
+- **Module**: `bot/backtest/` (pure stdlib — no Polars/pandas/numpy dep, deliberately, to keep the supply chain tight).
+- **Fixture**: `tests/fixtures/backtest_mini.csv` is a 43-row synthetic dataset (1 winner wallet + 1 loser wallet across 4 days). Tests assert deterministic numbers against it.
+- **Real dataset**: not vendored. Use `make backtest-data` with `PM_BACKTEST_DATA_URL` + `PM_BACKTEST_DATA_SHA256` env vars to fetch the third-party `poly_data` (warproxxx, MIT) snapshot. The script aborts on hash mismatch.
+- **Outputs**: `data/backtest/report.json` (canonical, schema_version=1) + `data/backtest/report.md` (human summary). Both are gitignored.
+- **CLI**: `python scripts/run_backtest.py --help` lists every Settings-mirrored knob (`--min-win-rate`, `--min-wallet-score`, `--allowed-categories`, `--manual-wallet`, …).
+- **Look-ahead protection**: when scoring wallet W on day D the engine only sees W's trades with `ts < first_ts_of_day_D`. Tested via `TestReplayLookAheadProtection`.
